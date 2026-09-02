@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openclaw-config
+  namespace: ai-email-demo
+data:
+  openclaw.json: |
+    {
+      "gateway": {
+        "mode": "local",
+        "bind": "lan",
+        "port": 8080,
+        "auth": {"mode": "token", "token": "${OPENCLAW_GATEWAY_TOKEN}"},
+        "controlUi": {
+          "enabled": true,
+          "dangerouslyDisableDeviceAuth": true,
+          "allowedOrigins": ["https://openclaw-ai-email-demo.apps-crc.testing"]
+        }
+      },
+      "agents": {
+        "defaults": {
+          "workspace": "/home/node/.openclaw/workspace",
+          "model": {"primary": "INFERENCE_PROVIDER/INFERENCE_MODEL"},
+          "models": {
+            "INFERENCE_PROVIDER/INFERENCE_MODEL": {"alias": "INFERENCE_MODEL_NAME"}
+          }
+        }
+      },
+      "models": {
+        "providers": {
+          "INFERENCE_PROVIDER": {
+            "baseUrl": "INFERENCE_API_URL",
+            "apiKey": "${INFERENCE_API_TOKEN}",
+            "api": "INFERENCE_API_TYPE",
+            "timeoutSeconds": 300,
+            "models": [
+              {"id": "INFERENCE_MODEL", "name": "INFERENCE_MODEL_NAME", "reasoning": true, "input": ["text"], "contextWindow": 128000, "maxTokens": 8192}
+            ]
+          }
+        }
+      },
+      "tools": {
+        "exec": {"host": "gateway"}
+      }
+    }

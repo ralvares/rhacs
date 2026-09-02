@@ -1,0 +1,7 @@
+# Deliberately obsolete Python dependencies for the developer-workstation
+# dependency-analysis example. The scan-only v1 container uses package.json
+# This separate Python example is not installed in the OpenClaw image.
+requests==2.19.1
+urllib3==1.23
+Jinja2==2.10.1
+setuptools==65.5.0

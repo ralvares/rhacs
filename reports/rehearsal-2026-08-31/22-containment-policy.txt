@@ -1,0 +1,4 @@
+networkpolicy.networking.k8s.io "ai-agent-egress-before" deleted
+networkpolicy.networking.k8s.io/ai-agent-egress-after created
+NAME                    POD-SELECTOR   AGE
+ai-agent-egress-after   app=ai-agent   0s

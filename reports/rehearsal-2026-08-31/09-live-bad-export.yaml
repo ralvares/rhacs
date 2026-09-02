@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    demo.rhacs.ai/purpose: roxctl-static-check-only-do-not-deploy
+    deployment.kubernetes.io/revision: "1"
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{"demo.rhacs.ai/purpose":"roxctl-static-check-only-do-not-deploy"},"name":"ai-agent-intentionally-bad","namespace":"ai-email-demo"},"spec":{"replicas":0,"selector":{"matchLabels":{"app":"ai-agent-intentionally-bad"}},"template":{"metadata":{"labels":{"app":"ai-agent-intentionally-bad"}},"spec":{"containers":[{"image":"image-registry.openshift-image-registry.svc:5000/ai-email-demo/ai-agent:v1","name":"ai-agent","ports":[{"containerPort":8080}],"securityContext":{"allowPrivilegeEscalation":true,"capabilities":{"add":["SYS_ADMIN","NET_ADMIN"]},"privileged":true,"runAsUser":0}}],"hostPID":true,"serviceAccountName":"ai-agent"}}}}
+  creationTimestamp: "2026-08-31T13:58:06Z"
+  generation: 1
+  name: ai-agent-intentionally-bad
+  namespace: ai-email-demo
+  resourceVersion: "151826"
+  uid: 4500fb42-9cee-4b97-8261-7049c333419b
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 0
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: ai-agent-intentionally-bad
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: ai-agent-intentionally-bad
+    spec:
+      containers:
+      - image: image-registry.openshift-image-registry.svc:5000/ai-email-demo/ai-agent:v1
+        imagePullPolicy: IfNotPresent
+        name: ai-agent
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        resources: {}
+        securityContext:
+          allowPrivilegeEscalation: true
+          capabilities:
+            add:
+            - SYS_ADMIN
+            - NET_ADMIN
+          privileged: true
+          runAsUser: 0
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      hostPID: true
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: ai-agent
+      serviceAccountName: ai-agent
+      terminationGracePeriodSeconds: 30
+status:
+  conditions:
+  - lastTransitionTime: "2026-08-31T13:58:06Z"
+    lastUpdateTime: "2026-08-31T13:58:06Z"
+    message: Deployment has minimum availability.
+    reason: MinimumReplicasAvailable
+    status: "True"
+    type: Available
+  - lastTransitionTime: "2026-08-31T13:58:06Z"
+    lastUpdateTime: "2026-08-31T13:58:06Z"
+    message: ReplicaSet "ai-agent-intentionally-bad-7d96687984" has successfully progressed.
+    reason: NewReplicaSetAvailable
+    status: "True"
+    type: Progressing
+  observedGeneration: 1
+  terminatingReplicas: 0

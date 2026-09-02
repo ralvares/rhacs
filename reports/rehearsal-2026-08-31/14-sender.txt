@@ -1,0 +1,6 @@
+namespace/external-sender configured
+namespace/demo-webhook configured
+configmap/external-html-sender created
+job.batch/external-html-sender created
+job.batch/external-html-sender condition met
+HTML email delivered to demo@demo.test

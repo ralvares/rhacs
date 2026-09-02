@@ -1,0 +1,77 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: mail-api
+  namespace: ai-email-demo
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: openclaw
+  namespace: ai-email-demo
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: demo-sink
+  namespace: ai-email-demo
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: mail-api
+  namespace: ai-email-demo
+spec:
+  source: {type: Binary}
+  strategy:
+    type: Docker
+    dockerStrategy: {dockerfilePath: Dockerfile}
+  output:
+    to: {kind: ImageStreamTag, name: "mail-api:latest"}
+  successfulBuildsHistoryLimit: 2
+  failedBuildsHistoryLimit: 2
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: openclaw-v1
+  namespace: ai-email-demo
+spec:
+  source: {type: Binary}
+  strategy:
+    type: Docker
+    dockerStrategy: {dockerfilePath: v1/Dockerfile}
+  output:
+    to: {kind: ImageStreamTag, name: "openclaw:v1"}
+  successfulBuildsHistoryLimit: 2
+  failedBuildsHistoryLimit: 2
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: openclaw-v2
+  namespace: ai-email-demo
+spec:
+  source: {type: Binary}
+  strategy:
+    type: Docker
+    dockerStrategy: {dockerfilePath: v2/Dockerfile}
+  output:
+    to: {kind: ImageStreamTag, name: "openclaw:v2"}
+  successfulBuildsHistoryLimit: 2
+  failedBuildsHistoryLimit: 2
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: demo-sink
+  namespace: ai-email-demo
+spec:
+  source: {type: Binary}
+  strategy:
+    type: Docker
+    dockerStrategy: {dockerfilePath: Dockerfile}
+  output:
+    to: {kind: ImageStreamTag, name: "demo-sink:latest"}
+  successfulBuildsHistoryLimit: 2
+  failedBuildsHistoryLimit: 2

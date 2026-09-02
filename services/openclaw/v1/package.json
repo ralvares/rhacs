@@ -1,0 +1,9 @@
+{
+  "name": "rhacs-ai-demo-openclaw-v1-candidate",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Scan-only affected OpenClaw image; never deploy",
+  "dependencies": {
+    "openclaw": "2026.2.13"
+  }
+}

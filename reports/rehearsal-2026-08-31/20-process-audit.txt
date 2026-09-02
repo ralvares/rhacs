@@ -1,0 +1,27 @@
+prepare-openclaw-home: no process history observed
+openclaw	/bin/basename	BASELINE
+openclaw	/bin/ps	BASELINE
+openclaw	/bin/sh	BASELINE
+openclaw	/usr/bin/basename	BASELINE
+openclaw	/usr/bin/cat	BASELINE
+openclaw	/usr/bin/coreutils	MISSING
+openclaw	/usr/bin/curl	FORBIDDEN
+openclaw	/usr/bin/env	BASELINE
+openclaw	/usr/bin/find	BASELINE
+openclaw	/usr/bin/grep	BASELINE
+openclaw	/usr/bin/hostnamectl	BASELINE
+openclaw	/usr/bin/id	BASELINE
+openclaw	/usr/bin/locale	BASELINE
+openclaw	/usr/bin/node	BASELINE
+openclaw	/usr/bin/node-22	BASELINE
+openclaw	/usr/bin/python3	BASELINE
+openclaw	/usr/bin/readlink	BASELINE
+openclaw	/usr/bin/rm	BASELINE
+openclaw	/usr/bin/sed	BASELINE
+openclaw	/usr/bin/sh	BASELINE
+openclaw	/usr/bin/tr	BASELINE
+openclaw	/usr/bin/uname	BASELINE
+openclaw	/usr/bin/xargs	BASELINE
+openclaw	/usr/libexec/grepconf.sh	BASELINE
+openclaw	grepconf.sh	BASELINE
+openclaw	tclsh	BASELINE

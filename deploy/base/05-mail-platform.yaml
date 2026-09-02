@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mail-server
+  namespace: ai-email-demo
+  labels: {app: mail-server}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: mail-server}}
+  template:
+    metadata: {labels: {app: mail-server}}
+    spec:
+      serviceAccountName: mail-server
+      containers:
+        - name: greenmail
+          image: greenmail/standalone:2.1.13
+          env:
+            - name: GREENMAIL_OPTS
+              valueFrom:
+                secretKeyRef: {name: mail-credentials, key: greenmail-opts}
+          ports:
+            - {name: smtp, containerPort: 3025}
+            - {name: imap, containerPort: 3143}
+          resources:
+            requests: {cpu: 25m, memory: 96Mi}
+            limits: {cpu: 300m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mail-server
+  namespace: ai-email-demo
+spec:
+  selector: {app: mail-server}
+  ports:
+    - {name: smtp, port: 3025, targetPort: smtp}
+    - {name: imap, port: 3143, targetPort: imap}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webmail
+  namespace: ai-email-demo
+  labels: {app: webmail}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: webmail}}
+  template:
+    metadata: {labels: {app: webmail}}
+    spec:
+      serviceAccountName: webmail
+      containers:
+        - name: roundcube
+          image: WEBMAIL_IMAGE
+          env:
+            - {name: ROUNDCUBEMAIL_DEFAULT_HOST, value: mail-server}
+            - {name: ROUNDCUBEMAIL_DEFAULT_PORT, value: "3143"}
+            - {name: ROUNDCUBEMAIL_SMTP_SERVER, value: mail-server}
+            - {name: ROUNDCUBEMAIL_SMTP_PORT, value: "3025"}
+          ports: [{name: http, containerPort: 8000}]
+          volumeMounts:
+            - {name: roundcube-app, mountPath: /var/www/html}
+            - {name: roundcube-state, mountPath: /var/roundcube}
+          resources:
+            requests: {cpu: 25m, memory: 96Mi}
+            limits: {cpu: 300m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}
+      volumes:
+        - name: roundcube-app
+          emptyDir: {}
+        - name: roundcube-state
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webmail
+  namespace: ai-email-demo
+spec:
+  selector: {app: webmail}
+  ports: [{name: http, port: 8000, targetPort: http}]

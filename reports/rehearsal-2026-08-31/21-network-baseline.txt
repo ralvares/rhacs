@@ -1,0 +1,16 @@
+deployment: ai-agent   locked: true   observation ends: 2026-08-31T13:39:59.814693Z
+DIRECTION     PEER                                                      PORT   PROTO  STATUS
+egress to     approved-internal-service                                 8080   TCP    baseline
+ingress from  router-default                                            8080   TCP    baseline
+egress to     mail-server                                               3143   TCP    baseline
+ingress from  ada12424-bde3-4313-b810-bb463cbe8f90 (INTERNAL_ENTITIES)  8080   TCP    baseline
+egress to     ada12424-bde3-4313-b810-bb463cbe8f90 (INTERNAL_ENTITIES)  11434  TCP    baseline
+egress to     internet                                                  443    TCP    baseline
+egress to     dns-default                                               5353   TCP    baseline
+egress to     dns-default                                               5353   UDP    baseline
+egress to     demo-webhook                                              8080   TCP    forbidden
+egress to     Cloudflare (EXTERNAL_SOURCE)                              443    TCP    forbidden
+egress to     Cloudflare (EXTERNAL_SOURCE)                              0      UDP    forbidden
+egress to     Google/global (EXTERNAL_SOURCE)                           443    TCP    forbidden
+egress to     internet                                                  11434  TCP    forbidden
+egress to     unauthorized-demo-service                                 8080   TCP    forbidden

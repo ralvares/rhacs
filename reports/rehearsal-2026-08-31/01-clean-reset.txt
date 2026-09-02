@@ -1,0 +1,37 @@
+[1/8] Checking the deployed demo...
+[2/8] Applying the presentation mailbox credential...
+[3/8] Restoring the permissive opening network state...
+[4/8] Removing any sender Job from an earlier run...
+[5/8] Resetting the agent's conversation sessions...
+[6/8] Seeding only the two normal emails...
+[7/8] Clearing previous receiver evidence...
+[8/8] Verifying the presentation baseline...
+
+Base demo is ready.
+  - two normal emails are in demo@demo.test
+  - receiver history is empty
+  - permissive before-policy is active
+  - no injected email was sent
+  - no chatbot request was executed
+  - prior agent conversations were removed
+
+NAME       HOST/PORT                                 PATH   SERVICES   PORT   TERMINATION     WILDCARD
+ai-agent   ai-agent-ai-email-demo.apps-crc.testing          ai-agent   http   edge/Redirect   None
+mail-api   mail-api-ai-email-demo.apps-crc.testing          mail-api   http   edge/Redirect   None
+webmail    webmail-ai-email-demo.apps-crc.testing           webmail    http   edge/Redirect   None
+
+Webmail user: demo
+Webmail password: demo
+Mailbox address: demo@demo.test
+OpenClaw gateway token: 3fefd121fc1319a4857507af25c94165d01f7d6892574d4b
+
+If the browser requests pairing, click Connect once and run:
+  /Users/ralvares/Documents/Codex/2026-08-29/referenced-chatgpt-conversation-this-is-an/scripts/show-demo-credentials.sh --approve
+
+Present manually:
+  1. Open Roundcube and show the two normal emails.
+  2. Connect the chatbot; run show-demo-credentials.sh --approve if pairing is requested.
+  3. Ask the chatbot to summarize today's email.
+  4. When ready, run: ./scripts/send-external-html-email.sh
+  5. Show the new HTML email, then ask the chatbot again.
+  6. For containment, run: ./scripts/restrict-egress.sh

@@ -1,0 +1,141 @@
+{
+  "results": [
+    {
+      "metadata": {
+        "id": "509ef015-936f-4e2b-b83b-d1a29e687c1a",
+        "additionalInfo": {
+          "name": "ai-agent-intentionally-bad",
+          "namespace": "ai-email-demo",
+          "type": "Deployment"
+        }
+      },
+      "summary": {
+        "CRITICAL": 0,
+        "HIGH": 3,
+        "LOW": 1,
+        "MEDIUM": 5,
+        "TOTAL": 9
+      },
+      "violatedPolicies": [
+        {
+          "name": "Demo - Privileged workload blocked",
+          "severity": "HIGH",
+          "description": "Reject privileged containers in the AI email demo namespace.",
+          "violation": [
+            "Container 'ai-agent' is privileged",
+            "Namespace has name 'ai-email-demo'"
+          ],
+          "remediation": "Set privileged to false and drop all Linux capabilities.",
+          "failingCheck": false
+        },
+        {
+          "name": "Fixable Severity at least Important",
+          "severity": "HIGH",
+          "description": "Alert on deployments with fixable vulnerabilities with a Severity Rating at least Important",
+          "violation": [
+            "Fixable CVE-2018-18074 (CVSS 7.5) (severity Important) found in component 'requests' (version 2.19.1) in container 'ai-agent', resolved by version 2.20.0",
+            "Fixable CVE-2019-11324 (CVSS 7.5) (severity Important) found in component 'urllib3' (version 1.23) in container 'ai-agent', resolved by version 1.24.2",
+            "Fixable CVE-2022-40897 (CVSS 5.9) (severity Important) found in component 'setuptools' (version 65.5.0) in container 'ai-agent', resolved by version 65.5.1",
+            "Fixable CVE-2023-43804 (CVSS 8.1) (severity Important) found in component 'urllib3' (version 1.23) in container 'ai-agent', resolved by version 1.26.17",
+            "Fixable CVE-2024-3651 (CVSS 7.5) (severity Important) found in component 'idna' (version 2.7) in container 'ai-agent', resolved by version 3.7",
+            "Fixable CVE-2024-6345 (CVSS 0) (severity Important) found in component 'setuptools' (version 65.5.0) in container 'ai-agent', resolved by version 70.0.0",
+            "Fixable CVE-2025-47273 (CVSS 8.8) (severity Important) found in component 'setuptools' (version 65.5.0) in container 'ai-agent', resolved by version 78.1.1",
+            "Fixable CVE-2025-66471 (CVSS 7.5) (severity Important) found in component 'urllib3' (version 1.23) in container 'ai-agent', resolved by version 2.6.0",
+            "Fixable CVE-2026-21441 (CVSS 7.5) (severity Important) found in component 'urllib3' (version 1.23) in container 'ai-agent', resolved by version 2.6.3"
+          ],
+          "remediation": "Use your package manager to update to a fixed version in future builds or speak with your security team to mitigate the vulnerabilities.",
+          "failingCheck": false
+        },
+        {
+          "name": "Privileged Containers with Important and Critical Fixable CVEs",
+          "severity": "HIGH",
+          "description": "Alert on containers running in privileged mode with important or critical fixable vulnerabilities",
+          "violation": [
+            "Container 'ai-agent' is privileged",
+            "Fixable CVE-2018-18074 (CVSS 7.5) (severity Important) found in component 'requests' (version 2.19.1) in container 'ai-agent', resolved by version 2.20.0",
+            "Fixable CVE-2019-11324 (CVSS 7.5) (severity Important) found in component 'urllib3' (version 1.23) in container 'ai-agent', resolved by version 1.24.2",
+            "Fixable CVE-2022-40897 (CVSS 5.9) (severity Important) found in component 'setuptools' (version 65.5.0) in container 'ai-agent', resolved by version 65.5.1",
+            "Fixable CVE-2023-43804 (CVSS 8.1) (severity Important) found in component 'urllib3' (version 1.23) in container 'ai-agent', resolved by version 1.26.17",
+            "Fixable CVE-2024-3651 (CVSS 7.5) (severity Important) found in component 'idna' (version 2.7) in container 'ai-agent', resolved by version 3.7",
+            "Fixable CVE-2024-6345 (CVSS 0) (severity Important) found in component 'setuptools' (version 65.5.0) in container 'ai-agent', resolved by version 70.0.0",
+            "Fixable CVE-2025-47273 (CVSS 8.8) (severity Important) found in component 'setuptools' (version 65.5.0) in container 'ai-agent', resolved by version 78.1.1",
+            "Fixable CVE-2025-66471 (CVSS 7.5) (severity Important) found in component 'urllib3' (version 1.23) in container 'ai-agent', resolved by version 2.6.0",
+            "Fixable CVE-2026-21441 (CVSS 7.5) (severity Important) found in component 'urllib3' (version 1.23) in container 'ai-agent', resolved by version 2.6.3"
+          ],
+          "remediation": "Use your package manager to update to a fixed version in future builds, run your container with lower privileges, or speak with your security team to mitigate the vulnerabilities.",
+          "failingCheck": false
+        },
+        {
+          "name": "CAP_SYS_ADMIN capability added",
+          "severity": "MEDIUM",
+          "description": "Alert on deployments with containers escalating with CAP_SYS_ADMIN",
+          "violation": [
+            "Container 'ai-agent' adds capability SYS_ADMIN"
+          ],
+          "remediation": "Ensure that the container really needs the CAP_SYS_ADMIN capability or use a userspace derivative.",
+          "failingCheck": false
+        },
+        {
+          "name": "Container with privilege escalation allowed",
+          "severity": "MEDIUM",
+          "description": "Alerts if a deployment has containers with allowPrivilegeEscalation set to true in its security context.",
+          "violation": [
+            "Container 'ai-agent' allows privilege escalation"
+          ],
+          "remediation": "Verify that privileged escalation is required and cannot be provided with a subset of other controls. Disable privilege escalation by setting allowPrivilegeEscalation to false.",
+          "failingCheck": false
+        },
+        {
+          "name": "Docker CIS 5.15: Ensure that the host's process namespace is not shared",
+          "severity": "MEDIUM",
+          "description": "The Process ID (PID) namespace isolates the process ID space, meaning that processes in different PID namespaces can have the same PID. This creates process level isolation between the containers and the host.",
+          "violation": [
+            "Deployment uses the host's process ID namespace"
+          ],
+          "remediation": "You should not create a deployment with `hostPID: true`",
+          "failingCheck": false
+        },
+        {
+          "name": "No CPU request or memory limit specified",
+          "severity": "MEDIUM",
+          "description": "Alert on deployments that have containers without CPU request or memory limit",
+          "violation": [
+            "CPU request set to 0 cores for container 'ai-agent'",
+            "Memory limit set to 0 MB for container 'ai-agent'"
+          ],
+          "remediation": "Specify CPU request and memory limit for your deployment.",
+          "failingCheck": false
+        },
+        {
+          "name": "Privileged Container",
+          "severity": "MEDIUM",
+          "description": "Alert on deployments with containers running in privileged mode",
+          "violation": [
+            "Container 'ai-agent' is privileged"
+          ],
+          "remediation": "Verify that privileged capabilities are required and cannot be provided with a subset of other controls.",
+          "failingCheck": false
+        },
+        {
+          "name": "Red Hat Package Manager in Image",
+          "severity": "LOW",
+          "description": "Alert on deployments with components of the Red Hat/Fedora/CentOS package management system.",
+          "violation": [
+            "Container 'ai-agent' includes component 'dnf' (version 4.14.0-34.el9_8)",
+            "Container 'ai-agent' includes component 'rpm' (version 4.16.1.3-40.el9)",
+            "Container 'ai-agent' includes component 'yum' (version 4.14.0-34.el9_8)"
+          ],
+          "remediation": "Run `rpm -e --nodeps $(rpm -qa '*rpm*' '*dnf*' '*libsolv*' '*hawkey*' 'yum*')` in the image build for production containers.",
+          "failingCheck": false
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "CRITICAL": 0,
+    "HIGH": 3,
+    "LOW": 1,
+    "MEDIUM": 5,
+    "TOTAL": 9
+  }
+}

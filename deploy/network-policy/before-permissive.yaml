@@ -1,0 +1,12 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: openclaw-egress-before
+  namespace: ai-email-demo
+spec:
+  podSelector:
+    matchLabels: {app: openclaw}
+  policyTypes: [Egress]
+  egress:
+    - {}
+

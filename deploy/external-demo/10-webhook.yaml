@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-webhook
+  namespace: demo-webhook
+  labels: {app: demo-webhook}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: demo-webhook}}
+  template:
+    metadata:
+      labels: {app: demo-webhook}
+      annotations:
+        demo.rhacs.ai/purpose: isolated-synthetic-webhook-recorder
+    spec:
+      containers:
+        - name: webhook
+          image: image-registry.openshift-image-registry.svc:5000/ai-email-demo/demo-sink:latest
+          imagePullPolicy: Always
+          ports: [{name: http, containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 2}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 100m, memory: 96Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-webhook
+  namespace: demo-webhook
+spec:
+  selector: {app: demo-webhook}
+  ports: [{name: http, port: 8080, targetPort: http}]
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: demo-webhook
+  namespace: demo-webhook
+spec:
+  to: {kind: Service, name: demo-webhook}
+  port: {targetPort: http}
+  tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}

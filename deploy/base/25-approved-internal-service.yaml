@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: approved-internal-service
+  namespace: ai-email-demo
+  labels: {app: approved-internal-service}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: approved-internal-service}}
+  template:
+    metadata: {labels: {app: approved-internal-service}}
+    spec:
+      serviceAccountName: demo-sink
+      containers:
+        - name: sink
+          image: IMAGE_REGISTRY/ai-email-demo/demo-sink:latest
+          imagePullPolicy: Always
+          ports: [{name: http, containerPort: 8080}]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: approved-internal-service
+  namespace: ai-email-demo
+spec:
+  selector: {app: approved-internal-service}
+  ports: [{name: http, port: 8080, targetPort: http}]

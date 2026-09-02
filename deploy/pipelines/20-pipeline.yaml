@@ -1,0 +1,56 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: openclaw-release
+  namespace: ai-email-cicd
+spec:
+  params:
+    - {name: git-url, type: string}
+    - {name: revision, type: string}
+    - {name: image-tag, type: string}
+  workspaces:
+    - {name: source}
+    - {name: evidence}
+  tasks:
+    - name: clone
+      taskRef: {name: clone-source}
+      params:
+        - {name: url, value: $(params.git-url)}
+        - {name: revision, value: $(params.revision)}
+      workspaces: [{name: source, workspace: source}]
+    - name: test
+      runAfter: [clone]
+      taskRef: {name: test-source}
+      workspaces: [{name: source, workspace: source}]
+    - name: sbom
+      runAfter: [test]
+      taskRef: {name: generate-sbom}
+      workspaces:
+        - {name: source, workspace: source}
+        - {name: evidence, workspace: evidence}
+    - name: build
+      runAfter: [test]
+      taskRef: {name: build-openclaw}
+      params: [{name: image-tag, value: $(params.image-tag)}]
+      workspaces: [{name: source, workspace: source}]
+    - name: sign
+      runAfter: [build]
+      taskRef: {name: sign-image}
+      params: [{name: image, value: $(tasks.build.results.image-reference)}]
+      workspaces: [{name: source, workspace: source}]
+    - name: rhacs
+      runAfter: [sign, sbom]
+      taskRef: {name: rhacs-gate}
+      params: [{name: image, value: $(tasks.build.results.image-reference)}]
+      workspaces:
+        - {name: source, workspace: source}
+        - {name: evidence, workspace: evidence}
+    - name: promote
+      runAfter: [rhacs]
+      taskRef: {name: promote-openclaw}
+      params:
+        - {name: image-tag, value: $(params.image-tag)}
+        - {name: image, value: $(tasks.build.results.image-reference)}
+  results:
+    - {name: image, value: $(tasks.build.results.image-reference)}
+    - {name: sbom, value: $(tasks.sbom.results.sbom-path)}

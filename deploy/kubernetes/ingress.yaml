@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ai-email-demo
+  namespace: ai-email-demo
+spec:
+  ingressClassName: INGRESS_CLASS
+  rules:
+    - host: WEBMAIL_HOST
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: webmail, port: {name: http}}
+    - host: MAIL_API_HOST
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: mail-api, port: {name: http}}
+    - host: AI_AGENT_HOST
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: openclaw, port: {name: http}}
+

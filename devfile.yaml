@@ -1,0 +1,38 @@
+schemaVersion: 2.2.2
+metadata:
+  name: ai-email-supply-chain
+  displayName: AI Email Supply Chain Demo
+  description: OpenClaw dependency and OpenShift Pipelines demonstration workspace
+attributes:
+  controller.devfile.io/storage-type: per-workspace
+components:
+  - name: tools
+    container:
+      image: registry.redhat.io/devspaces/udi-rhel9:latest
+      memoryRequest: 1Gi
+      memoryLimit: 3Gi
+      cpuRequest: 100m
+      cpuLimit: "2"
+      mountSources: true
+      env:
+        - {name: GIT_AUTHOR_NAME, value: Demo Developer}
+        - {name: GIT_AUTHOR_EMAIL, value: demo@demo.test}
+        - {name: GIT_COMMITTER_NAME, value: Demo Developer}
+        - {name: GIT_COMMITTER_EMAIL, value: demo@demo.test}
+commands:
+  - id: configure-workspace
+    exec:
+      component: tools
+      commandLine: >-
+        git config --global user.name 'Demo Developer' &&
+        git config --global user.email 'demo@demo.test' &&
+        printf '\nDeveloper workspace ready. Open requirements.txt or package.json to begin.\n'
+      workingDir: ${PROJECT_SOURCE}
+  - id: test
+    exec:
+      component: tools
+      commandLine: python3 -m pytest -q
+      workingDir: ${PROJECT_SOURCE}
+      group: {kind: test, isDefault: true}
+events:
+  postStart: [configure-workspace]

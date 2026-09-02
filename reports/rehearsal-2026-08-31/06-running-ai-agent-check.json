@@ -1,0 +1,69 @@
+{
+  "results": [
+    {
+      "metadata": {
+        "id": "948adf26-cdc9-46d9-aadb-a72447761cb3",
+        "additionalInfo": {
+          "name": "ai-agent",
+          "namespace": "ai-email-demo",
+          "type": "Deployment"
+        }
+      },
+      "summary": {
+        "CRITICAL": 0,
+        "HIGH": 1,
+        "LOW": 2,
+        "MEDIUM": 0,
+        "TOTAL": 3
+      },
+      "violatedPolicies": [
+        {
+          "name": "Fixable Severity at least Important",
+          "severity": "HIGH",
+          "description": "Alert on deployments with fixable vulnerabilities with a Severity Rating at least Important",
+          "violation": [
+            "Fixable CVE-2026-13676 (CVSS 7.5) (severity Important) found in component 'fast-uri' (version 3.1.2) in container 'openclaw', resolved by version 3.1.3",
+            "Fixable CVE-2026-13697 (CVSS 7.4) (severity Important) found in component 'undici' (version 8.5.0) in container 'openclaw', resolved by version 8.9.0",
+            "Fixable CVE-2026-14257 (CVSS 7.5) (severity Important) found in component 'brace-expansion' (version 5.0.7) in container 'openclaw', resolved by version 5.0.8",
+            "Fixable CVE-2026-16221 (CVSS 7.5) (severity Important) found in component 'fast-uri' (version 3.1.2) in container 'openclaw', resolved by version 3.1.4",
+            "Fixable CVE-2026-18446 (CVSS 7.5) (severity Important) found in component 'fast-uri' (version 3.1.2) in container 'openclaw', resolved by version 3.1.5",
+            "Fixable CVE-2026-69152 (CVSS 7.5) (severity Important) found in component 'brace-expansion' (version 5.0.7) in container 'openclaw', resolved by version 5.0.9",
+            "Fixable CVE-2026-69192 (CVSS 0) (severity Important) found in component 'ip-address' (version 10.2.0) in container 'openclaw', resolved by version 10.3.1",
+            "Fixable CVE-2026-73566 (CVSS 7.5) (severity Important) found in component 'tar' (version 7.5.19) in container 'openclaw', resolved by version 7.5.21"
+          ],
+          "remediation": "Use your package manager to update to a fixed version in future builds or speak with your security team to mitigate the vulnerabilities.",
+          "failingCheck": false
+        },
+        {
+          "name": "Latest tag",
+          "severity": "LOW",
+          "description": "Alert on deployments with images using tag 'latest'",
+          "violation": [
+            "Container 'openclaw' has image with tag 'latest'"
+          ],
+          "remediation": "Consider moving to semantic versioning based on code releases (semver.org) or using the first 12 characters of the source control SHA. This will allow you to tie the Docker image to the code.",
+          "failingCheck": false
+        },
+        {
+          "name": "Red Hat Package Manager in Image",
+          "severity": "LOW",
+          "description": "Alert on deployments with components of the Red Hat/Fedora/CentOS package management system.",
+          "violation": [
+            "Container 'openclaw' includes component 'dnf' (version 4.14.0-34.el9_8)",
+            "Container 'openclaw' includes component 'rpm' (version 4.16.1.3-40.el9)",
+            "Container 'openclaw' includes component 'yum' (version 4.14.0-34.el9_8)"
+          ],
+          "remediation": "Run `rpm -e --nodeps $(rpm -qa '*rpm*' '*dnf*' '*libsolv*' '*hawkey*' 'yum*')` in the image build for production containers.",
+          "failingCheck": false
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "CRITICAL": 0,
+    "HIGH": 1,
+    "LOW": 2,
+    "MEDIUM": 0,
+    "TOTAL": 3
+  }
+}

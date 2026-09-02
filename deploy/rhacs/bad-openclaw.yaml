@@ -1,0 +1,26 @@
+# Intentionally vulnerable image candidate: use only with `roxctl deployment check`.
+# Do not apply this manifest to a cluster.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openclaw-v1-candidate
+  namespace: ai-email-demo
+  labels: {app: openclaw, release: v1}
+  annotations:
+    demo.rhacs.ai/purpose: vulnerable-image-check-only-do-not-deploy
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: openclaw, release: v1}}
+  template:
+    metadata: {labels: {app: openclaw, release: v1}}
+    spec:
+      serviceAccountName: openclaw
+      automountServiceAccountToken: false
+      containers:
+        - name: openclaw
+          image: REGISTRY_ROUTE/ai-email-demo/openclaw:v1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}

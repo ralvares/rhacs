@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mail-api
+  namespace: ai-email-demo
+  labels: {app: mail-api}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: mail-api}}
+  template:
+    metadata: {labels: {app: mail-api}}
+    spec:
+      serviceAccountName: mail-api
+      containers:
+        - name: mail-api
+          image: IMAGE_REGISTRY/ai-email-demo/mail-api:latest
+          imagePullPolicy: Always
+          env:
+            - {name: SMTP_HOST, value: mail-server}
+            - {name: SMTP_PORT, value: "3025"}
+            - {name: IMAP_HOST, value: mail-server}
+            - {name: IMAP_PORT, value: "3143"}
+            - name: MAIL_USER
+              valueFrom:
+                secretKeyRef: {name: mail-credentials, key: mail-user}
+            - name: MAIL_ADDRESS
+              valueFrom:
+                secretKeyRef: {name: mail-credentials, key: mail-address}
+            - name: MAIL_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: mail-credentials, key: mail-password}
+          ports: [{name: http, containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 2}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 10}
+          resources:
+            requests: {cpu: 25m, memory: 48Mi}
+            limits: {cpu: 250m, memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mail-api
+  namespace: ai-email-demo
+spec:
+  selector: {app: mail-api}
+  ports: [{name: http, port: 8080, targetPort: http}]

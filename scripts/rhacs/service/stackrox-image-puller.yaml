@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: stackrox-image-puller
+  namespace: stackrox
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: stackrox-image-puller-token
+  namespace: stackrox
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    kubernetes.io/service-account.name: stackrox-image-puller
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: stackrox-image-puller
+  namespace: ai-email-demo
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:image-puller
+subjects:
+  - kind: ServiceAccount
+    name: stackrox-image-puller
+    namespace: stackrox

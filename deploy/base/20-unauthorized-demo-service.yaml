@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: unauthorized-demo-service
+  namespace: ai-email-demo
+  labels: {app: unauthorized-demo-service}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: unauthorized-demo-service}}
+  template:
+    metadata: {labels: {app: unauthorized-demo-service}}
+    spec:
+      serviceAccountName: demo-sink
+      containers:
+        - name: sink
+          image: IMAGE_REGISTRY/ai-email-demo/demo-sink:latest
+          imagePullPolicy: Always
+          ports: [{name: http, containerPort: 8080}]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 100m, memory: 96Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: unauthorized-demo-service
+  namespace: ai-email-demo
+spec:
+  selector: {app: unauthorized-demo-service}
+  ports: [{name: http, port: 8080, targetPort: http}]

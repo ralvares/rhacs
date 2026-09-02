@@ -1,0 +1,27 @@
+# Intentionally unsafe: use only as input to `roxctl deployment check`.
+# Do not apply this manifest to a cluster.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-agent-intentionally-bad
+  namespace: ai-email-demo
+  annotations:
+    demo.rhacs.ai/purpose: roxctl-static-check-only-do-not-deploy
+spec:
+  replicas: 0
+  selector: {matchLabels: {app: ai-agent-intentionally-bad}}
+  template:
+    metadata: {labels: {app: ai-agent-intentionally-bad}}
+    spec:
+      hostPID: true
+      serviceAccountName: ai-agent
+      containers:
+        - name: ai-agent
+          image: image-registry.openshift-image-registry.svc:5000/ai-email-demo/ai-agent:v1
+          ports: [{containerPort: 8080}]
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: true
+            runAsUser: 0
+            capabilities:
+              add: ["SYS_ADMIN", "NET_ADMIN"]

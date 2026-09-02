@@ -1,0 +1,13 @@
+NAME                                  READY   STATUS      RESTARTS   AGE     IP             NODE   NOMINATED NODE   READINESS GATES
+admission-control-65694668cb-bh6b6    1/1     Running     4          3h57m   10.217.0.233   crc    <none>           <none>
+central-84d5dbdc6d-fttbs              1/1     Running     4          3h57m   10.217.0.230   crc    <none>           <none>
+central-db-7fff494cd5-qzxjs           2/2     Running     8          3h57m   10.217.0.231   crc    <none>           <none>
+collector-x4zmt                       4/4     Running     16         3h57m   10.217.0.234   crc    <none>           <none>
+config-controller-55775bc8cd-nn8bg    1/1     Running     4          3h57m   10.217.0.228   crc    <none>           <none>
+create-cluster-crs-rbhqm              0/1     Completed   0          3h57m   <none>         crc    <none>           <none>
+scanner-5b797499f9-d9krq              1/1     Running     4          3h57m   10.217.0.227   crc    <none>           <none>
+scanner-db-6f7c585b95-qsbjt           1/1     Running     3          3h29m   10.217.0.5     crc    <none>           <none>
+scanner-v4-db-69896cffd5-vxjbt        2/2     Running     8          3h57m   10.217.0.232   crc    <none>           <none>
+scanner-v4-indexer-5cbdfd6486-jtjlx   1/1     Running     4          3h57m   10.217.0.225   crc    <none>           <none>
+scanner-v4-matcher-7d9cbd946b-kv694   1/1     Running     4          3h57m   10.217.0.226   crc    <none>           <none>
+sensor-65bc4679c5-mzn9d               1/1     Running     4          3h57m   10.217.0.235   crc    <none>           <none>

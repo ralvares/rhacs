@@ -1,0 +1,1 @@
+{"deployments":[{"id":"4500fb42-9cee-4b97-8261-7049c333419b", "hash":"6593694096918028245", "name":"ai-agent-intentionally-bad", "cluster":"production", "clusterId":"a731dc14-9cde-4f9b-af21-efc2b159ba82", "namespace":"ai-email-demo", "created":"2026-08-31T13:58:06Z", "priority":"69"}]}

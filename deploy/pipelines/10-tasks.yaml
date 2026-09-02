@@ -1,0 +1,192 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata: {name: clone-source, namespace: ai-email-cicd}
+spec:
+  params:
+    - {name: url, type: string}
+    - {name: revision, type: string}
+  workspaces: [{name: source}]
+  steps:
+    - name: clone
+      image: registry.redhat.io/devspaces/udi-rhel9:latest
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        find . -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+        git clone "$(params.url)" .
+        git checkout "$(params.revision)"
+        git status --short --branch
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata: {name: test-source, namespace: ai-email-cicd}
+spec:
+  workspaces: [{name: source}]
+  steps:
+    - name: dependency-contract
+      image: registry.redhat.io/devspaces/udi-rhel9:latest
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        test -f devfile.yaml
+        test -f .vscode/extensions.json
+        diff -B -q versions/v2/package.json services/openclaw/v2/package.json
+        diff -B -q versions/v2/package-lock.json services/openclaw/v2/package-lock.json
+        python3 - <<'PY'
+        import json
+        from pathlib import Path
+        package = json.loads(Path("services/openclaw/v2/package.json").read_text())
+        version = package["dependencies"]["openclaw"]
+        if version != "2026.7.1":
+            raise SystemExit(f"expected approved OpenClaw 2026.7.1, found {version}")
+        print(f"Approved dependency contract: openclaw@{version}")
+        PY
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata: {name: build-openclaw, namespace: ai-email-cicd}
+spec:
+  params: [{name: image-tag, type: string}]
+  workspaces: [{name: source}]
+  results:
+    - {name: image-digest, description: OpenShift image digest}
+    - {name: image-reference, description: Immutable internal-registry reference}
+  steps:
+    - name: build
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        tag="$(params.image-tag)"
+        oc -n ai-email-demo patch buildconfig openclaw-v2 --type=merge \
+          -p "{\"spec\":{\"output\":{\"to\":{\"kind\":\"ImageStreamTag\",\"name\":\"openclaw:${tag}\"}}}}"
+        oc -n ai-email-demo start-build openclaw-v2 \
+          --from-dir="$(workspaces.source.path)/services/openclaw" --follow --wait
+        digest="$(oc -n ai-email-demo get istag "openclaw:${tag}" -o jsonpath='{.image.metadata.name}')"
+        test -n "$digest"
+        reference="image-registry.openshift-image-registry.svc:5000/ai-email-demo/openclaw@${digest}"
+        printf '%s' "$digest" | tee "$(results.image-digest.path)"
+        printf '%s' "$reference" | tee "$(results.image-reference.path)"
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata: {name: generate-sbom, namespace: ai-email-cicd}
+spec:
+  workspaces:
+    - {name: source}
+    - {name: evidence}
+  results: [{name: sbom-path, description: CycloneDX evidence path}]
+  steps:
+    - name: cyclonedx
+      image: registry.access.redhat.com/ubi9/nodejs-22:latest
+      workingDir: $(workspaces.source.path)/services/openclaw/v2
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        mkdir -p "$(workspaces.evidence.path)"
+        npm sbom --omit=dev --sbom-format cyclonedx \
+          > "$(workspaces.evidence.path)/openclaw-pipeline.cdx.json"
+        node -e 'const b=require(process.argv[1]); console.log(`SBOM components: ${b.components?.length || 0}`)' \
+          "$(workspaces.evidence.path)/openclaw-pipeline.cdx.json"
+        printf '%s' "$(workspaces.evidence.path)/openclaw-pipeline.cdx.json" > "$(results.sbom-path.path)"
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata: {name: sign-image, namespace: ai-email-cicd}
+spec:
+  params: [{name: image, type: string}]
+  workspaces: [{name: source}]
+  steps:
+    - name: prepare-auth
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        token="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
+        auth="$(printf 'serviceaccount:%s' "$token" | base64 | tr -d '\n')"
+        mkdir -p "$(workspaces.source.path)/.cosign-auth"
+        printf '{"auths":{"image-registry.openshift-image-registry.svc:5000":{"auth":"%s"}}}' "$auth" \
+          > "$(workspaces.source.path)/.cosign-auth/config.json"
+    - name: sign
+      image: ghcr.io/sigstore/cosign/cosign:v2.4.3
+      args:
+        - sign
+        - --yes
+        - --tlog-upload=false
+        - --allow-insecure-registry
+        - --key
+        - /keys/cosign.key
+        - -a
+        - release=pipeline-v2
+        - -a
+        - purpose=rhacs-ai-demo
+        - $(params.image)
+      env:
+        - {name: DOCKER_CONFIG, value: $(workspaces.source.path)/.cosign-auth}
+        - {name: HOME, value: /tmp}
+        - name: COSIGN_PASSWORD
+          valueFrom: {secretKeyRef: {name: cosign-signing-key, key: password}}
+      volumeMounts:
+        - {name: signing-key, mountPath: /keys, readOnly: true}
+  volumes:
+    - {name: signing-key, secret: {secretName: cosign-signing-key}}
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata: {name: rhacs-gate, namespace: ai-email-cicd}
+spec:
+  params: [{name: image, type: string}]
+  workspaces:
+    - {name: source}
+    - {name: evidence}
+  steps:
+    - name: image-and-yaml-check
+      image: registry.redhat.io/devspaces/udi-rhel9:latest
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: ROX_ENDPOINT
+          valueFrom: {secretKeyRef: {name: rhacs-ci, key: endpoint}}
+        - name: ROX_API_TOKEN
+          valueFrom: {secretKeyRef: {name: rhacs-ci, key: token}}
+        - {name: ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY, value: "true"}
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        mkdir -p /tmp/bin "$(workspaces.evidence.path)"
+        curl -kfsS "https://${ROX_ENDPOINT}/api/cli/download/roxctl-linux" -o /tmp/bin/roxctl
+        chmod 0755 /tmp/bin/roxctl
+        /tmp/bin/roxctl image check --image "$(params.image)" --force \
+          -o json > "$(workspaces.evidence.path)/rhacs-image-check.json"
+        sed \
+          -e 's#REGISTRY_ROUTE/ai-email-demo/openclaw:v2#$(params.image)#g' \
+          deploy/rhacs/clean-openclaw.yaml > /tmp/openclaw-release.yaml
+        /tmp/bin/roxctl deployment check --cluster production \
+          --file /tmp/openclaw-release.yaml -o json \
+          > "$(workspaces.evidence.path)/rhacs-deployment-check.json"
+        cp /tmp/openclaw-release.yaml "$(workspaces.evidence.path)/openclaw-release.yaml"
+        echo "RHACS image and deployment gates passed."
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata: {name: promote-openclaw, namespace: ai-email-cicd}
+spec:
+  params:
+    - {name: image-tag, type: string}
+    - {name: image, type: string}
+  steps:
+    - name: promote
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        oc -n ai-email-demo tag "openclaw:$(params.image-tag)" openclaw:v2
+        oc -n ai-email-demo tag "openclaw:$(params.image-tag)" openclaw:latest
+        oc -n ai-email-demo set image deployment/openclaw \
+          prepare-openclaw-home="$(params.image)" openclaw="$(params.image)"
+        oc -n ai-email-demo annotate deployment/openclaw \
+          demo.rhacs.ai/promoted-by=openshift-pipelines \
+          demo.rhacs.ai/immutable-image="$(params.image)" --overwrite
+        oc -n ai-email-demo rollout status deployment/openclaw --timeout=300s

@@ -1,0 +1,4 @@
+receiver_events 3
+('synthetic-environment-file', 56, '/tmp/agent-runtime-context.snapshot')
+('synthetic-environment-file', 56, '/tmp/agent-runtime-context.snapshot')
+('synthetic-environment-file', 56, '/tmp/agent-runtime-context.snapshot')

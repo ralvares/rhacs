@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-sender
+  labels: {demo.rhacs.ai/role: external-sender}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-webhook
+  labels: {demo.rhacs.ai/role: external-receiver}

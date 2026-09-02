@@ -1,0 +1,225 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "5"
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"labels":{"app":"ai-agent","runtime":"openclaw"},"name":"ai-agent","namespace":"ai-email-demo"},"spec":{"replicas":1,"selector":{"matchLabels":{"app":"ai-agent"}},"template":{"metadata":{"annotations":{"demo.harpia.ae/expected-child-processes":"sh,python3,curl","demo.harpia.ae/expected-flow":"ai-agent-to-demo-webhook-cross-namespace","demo.harpia.ae/runtime":"openclaw"},"labels":{"app":"ai-agent","runtime":"openclaw"}},"spec":{"automountServiceAccountToken":false,"containers":[{"command":["node","openclaw.mjs","gateway","--bind","lan","--port","8080"],"env":[{"name":"HOME","value":"/home/node"},{"name":"OPENCLAW_HOME","value":"/home/node"},{"name":"OPENCLAW_STATE_DIR","value":"/home/node/.openclaw"},{"name":"OPENCLAW_CONFIG_PATH","value":"/etc/openclaw/openclaw.json"},{"name":"OPENCLAW_WORKSPACE_DIR","value":"/home/node/.openclaw/workspace"},{"name":"OPENCLAW_DISABLE_BONJOUR","value":"1"},{"name":"INFERENCE_API_TOKEN","valueFrom":{"secretKeyRef":{"key":"api-token","name":"inference-credentials"}}},{"name":"OLLAMA_API_KEY","valueFrom":{"secretKeyRef":{"key":"api-token","name":"inference-credentials"}}},{"name":"OPENAI_API_KEY","valueFrom":{"secretKeyRef":{"key":"api-token","name":"inference-credentials"}}},{"name":"ANTHROPIC_API_KEY","valueFrom":{"secretKeyRef":{"key":"api-token","name":"inference-credentials"}}},{"name":"IMAP_HOST","value":"mail-server"},{"name":"IMAP_PORT","value":"3143"},{"name":"MAIL_USER","valueFrom":{"secretKeyRef":{"key":"mail-user","name":"mail-credentials"}}},{"name":"MAIL_PASSWORD","valueFrom":{"secretKeyRef":{"key":"mail-password","name":"mail-credentials"}}},{"name":"OPENCLAW_GATEWAY_TOKEN","valueFrom":{"secretKeyRef":{"key":"gateway-token","name":"openclaw-credentials"}}}],"image":"image-registry.openshift-image-registry.svc:5000/ai-email-demo/ai-agent:latest","imagePullPolicy":"Always","livenessProbe":{"httpGet":{"path":"/healthz","port":"http"},"initialDelaySeconds":30,"periodSeconds":15},"name":"openclaw","ports":[{"containerPort":8080,"name":"http"}],"readinessProbe":{"httpGet":{"path":"/readyz","port":"http"},"periodSeconds":5},"resources":{"limits":{"cpu":"1","memory":"2Gi"},"requests":{"cpu":"100m","memory":"512Mi"}},"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}},"startupProbe":{"failureThreshold":30,"httpGet":{"path":"/startupz","port":"http"},"periodSeconds":5},"volumeMounts":[{"mountPath":"/etc/openclaw/openclaw.json","name":"config","readOnly":true,"subPath":"openclaw.json"},{"mountPath":"/home/node/.openclaw","name":"state"},{"mountPath":"/home/node/.openclaw/workspace/.env","name":"runtime-context","readOnly":true,"subPath":"runtime-context"}]}],"initContainers":[{"command":["sh","-c","mkdir -p /state/workspace \u0026\u0026 cp -R /opt/openclaw-workspace/. /state/workspace/"],"image":"image-registry.openshift-image-registry.svc:5000/ai-email-demo/ai-agent:latest","imagePullPolicy":"Always","name":"prepare-openclaw-home","securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}},"volumeMounts":[{"mountPath":"/state","name":"state"}]}],"serviceAccountName":"ai-agent","volumes":[{"configMap":{"name":"openclaw-config"},"name":"config"},{"name":"state","persistentVolumeClaim":{"claimName":"ai-agent-state"}},{"name":"runtime-context","secret":{"defaultMode":292,"secretName":"demo-runtime-context"}}]}}}}
+  creationTimestamp: "2026-08-31T12:39:59Z"
+  generation: 5
+  labels:
+    app: ai-agent
+    runtime: openclaw
+  name: ai-agent
+  namespace: ai-email-demo
+  resourceVersion: "151637"
+  uid: d853e032-1f35-446e-854c-123b85dcc876
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: ai-agent
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        demo.harpia.ae/expected-child-processes: sh,python3,curl
+        demo.harpia.ae/expected-flow: ai-agent-to-demo-webhook-cross-namespace
+        demo.harpia.ae/runtime: openclaw
+        kubectl.kubernetes.io/restartedAt: "2026-08-31T17:56:31+04:00"
+      labels:
+        app: ai-agent
+        runtime: openclaw
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - command:
+        - node
+        - openclaw.mjs
+        - gateway
+        - --bind
+        - lan
+        - --port
+        - "8080"
+        env:
+        - name: HOME
+          value: /home/node
+        - name: OPENCLAW_HOME
+          value: /home/node
+        - name: OPENCLAW_STATE_DIR
+          value: /home/node/.openclaw
+        - name: OPENCLAW_CONFIG_PATH
+          value: /etc/openclaw/openclaw.json
+        - name: OPENCLAW_WORKSPACE_DIR
+          value: /home/node/.openclaw/workspace
+        - name: OPENCLAW_DISABLE_BONJOUR
+          value: "1"
+        - name: INFERENCE_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: api-token
+              name: inference-credentials
+        - name: OLLAMA_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: api-token
+              name: inference-credentials
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: api-token
+              name: inference-credentials
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: api-token
+              name: inference-credentials
+        - name: IMAP_HOST
+          value: mail-server
+        - name: IMAP_PORT
+          value: "3143"
+        - name: MAIL_USER
+          valueFrom:
+            secretKeyRef:
+              key: mail-user
+              name: mail-credentials
+        - name: MAIL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: mail-password
+              name: mail-credentials
+        - name: OPENCLAW_GATEWAY_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: gateway-token
+              name: openclaw-credentials
+        image: image-registry.openshift-image-registry.svc:5000/ai-email-demo/ai-agent:latest
+        imagePullPolicy: Always
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /healthz
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: openclaw
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /readyz
+            port: http
+            scheme: HTTP
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            cpu: "1"
+            memory: 2Gi
+          requests:
+            cpu: 100m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        startupProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /startupz
+            port: http
+            scheme: HTTP
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 1
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/openclaw/openclaw.json
+          name: config
+          readOnly: true
+          subPath: openclaw.json
+        - mountPath: /home/node/.openclaw
+          name: state
+        - mountPath: /home/node/.openclaw/workspace/.env
+          name: runtime-context
+          readOnly: true
+          subPath: runtime-context
+      dnsPolicy: ClusterFirst
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - mkdir -p /state/workspace && cp -R /opt/openclaw-workspace/. /state/workspace/
+        image: image-registry.openshift-image-registry.svc:5000/ai-email-demo/ai-agent:latest
+        imagePullPolicy: Always
+        name: prepare-openclaw-home
+        resources: {}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /state
+          name: state
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: ai-agent
+      serviceAccountName: ai-agent
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: openclaw-config
+        name: config
+      - name: state
+        persistentVolumeClaim:
+          claimName: ai-agent-state
+      - name: runtime-context
+        secret:
+          defaultMode: 292
+          secretName: demo-runtime-context
+status:
+  availableReplicas: 1
+  conditions:
+  - lastTransitionTime: "2026-08-31T12:40:21Z"
+    lastUpdateTime: "2026-08-31T12:40:21Z"
+    message: Deployment has minimum availability.
+    reason: MinimumReplicasAvailable
+    status: "True"
+    type: Available
+  - lastTransitionTime: "2026-08-31T12:39:59Z"
+    lastUpdateTime: "2026-08-31T13:56:37Z"
+    message: ReplicaSet "ai-agent-65877b6f8c" has successfully progressed.
+    reason: NewReplicaSetAvailable
+    status: "True"
+    type: Progressing
+  observedGeneration: 5
+  readyReplicas: 1
+  replicas: 1
+  terminatingReplicas: 0
+  updatedReplicas: 1

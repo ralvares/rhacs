@@ -1,0 +1,31 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: webmail
+  namespace: ai-email-demo
+spec:
+  to: {kind: Service, name: webmail}
+  port: {targetPort: http}
+  tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: mail-api
+  namespace: ai-email-demo
+spec:
+  to: {kind: Service, name: mail-api}
+  port: {targetPort: http}
+  tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: openclaw
+  namespace: ai-email-demo
+  annotations:
+    haproxy.router.openshift.io/timeout: 2m
+spec:
+  to: {kind: Service, name: openclaw}
+  port: {targetPort: http}
+  tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}

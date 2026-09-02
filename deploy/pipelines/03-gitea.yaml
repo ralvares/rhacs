@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitea
+  namespace: ai-email-cicd
+  labels: {app: gitea, app.kubernetes.io/part-of: ai-email-security-demo}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: gitea}}
+  template:
+    metadata: {labels: {app: gitea}}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: initialize
+          image: image-registry.openshift-image-registry.svc:5000/ai-email-cicd/gitea:latest
+          imagePullPolicy: Always
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              gitea migrate
+              gitea admin user create --username "$GITEA_USER" --password "$GITEA_PASSWORD" --email demo@demo.test --admin --must-change-password=false || true
+          envFrom: [{secretRef: {name: developer-platform-credentials}}]
+          env: &gitea_env
+            - {name: GITEA__database__DB_TYPE, value: sqlite3}
+            - {name: GITEA__database__PATH, value: /data/gitea/gitea.db}
+            - {name: GITEA__security__INSTALL_LOCK, value: "true"}
+            - {name: GITEA__server__ROOT_URL, value: GITEA_ROOT_URL}
+          volumeMounts: [{name: data, mountPath: /data}]
+          securityContext: &restricted
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: gitea
+          image: image-registry.openshift-image-registry.svc:5000/ai-email-cicd/gitea:latest
+          imagePullPolicy: Always
+          envFrom: [{secretRef: {name: developer-platform-credentials}}]
+          env:
+            - {name: GITEA__database__DB_TYPE, value: sqlite3}
+            - {name: GITEA__database__PATH, value: /data/gitea/gitea.db}
+            - {name: GITEA__security__INSTALL_LOCK, value: "true"}
+            - {name: GITEA__server__ROOT_URL, value: GITEA_ROOT_URL}
+            - {name: GITEA__server__HTTP_PORT, value: "3000"}
+            - {name: GITEA__service__DISABLE_REGISTRATION, value: "true"}
+          ports: [{name: http, containerPort: 3000}]
+          volumeMounts: [{name: data, mountPath: /data}]
+          readinessProbe: {httpGet: {path: /api/healthz, port: http}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /api/healthz, port: http}, initialDelaySeconds: 30, periodSeconds: 15}
+          resources:
+            requests: {cpu: 50m, memory: 256Mi}
+            limits: {cpu: 500m, memory: 768Mi}
+          securityContext: *restricted
+      volumes: [{name: data, persistentVolumeClaim: {claimName: gitea-data}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: gitea, namespace: ai-email-cicd}
+spec:
+  selector: {app: gitea}
+  ports: [{name: http, port: 3000, targetPort: http}]
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata: {name: gitea, namespace: ai-email-cicd}
+spec:
+  to: {kind: Service, name: gitea}
+  port: {targetPort: http}
+  tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}

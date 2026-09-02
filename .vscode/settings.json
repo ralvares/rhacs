@@ -1,0 +1,4 @@
+{
+  "redHatDependencyAnalytics.usePythonVirtualEnvironment": true,
+  "redHatDependencyAnalytics.usePipDepTree": false
+}

@@ -1,0 +1,33 @@
+container: prepare-openclaw-home  (locked: true)
+  (no processes)
+container: openclaw  (locked: true)
+  /bin/basename
+  /bin/ps
+  /bin/sh
+  /usr/bin/basename
+  /usr/bin/cat
+  /usr/bin/env
+  /usr/bin/find
+  /usr/bin/git
+  /usr/bin/grep
+  /usr/bin/head
+  /usr/bin/hostnamectl
+  /usr/bin/id
+  /usr/bin/locale
+  /usr/bin/ls
+  /usr/bin/node
+  /usr/bin/node-22
+  /usr/bin/python3
+  /usr/bin/readlink
+  /usr/bin/rm
+  /usr/bin/sed
+  /usr/bin/sh
+  /usr/bin/sort
+  /usr/bin/tclsh
+  /usr/bin/tr
+  /usr/bin/uname
+  /usr/bin/xargs
+  /usr/libexec/grepconf.sh
+  /usr/local/bin/node
+  /usr/local/bin/npm
+  grepconf.sh
