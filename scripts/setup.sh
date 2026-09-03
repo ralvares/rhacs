@@ -28,12 +28,16 @@ apply_base() {
   inference_provider=${INFERENCE_PROVIDER:-ollama}
   inference_model=${INFERENCE_MODEL:-deepseek-v4-flash:cloud}
   inference_model_name=${INFERENCE_MODEL_NAME:-DeepSeek V4 Flash Cloud}
+  inference_secondary_model=${INFERENCE_SECONDARY_MODEL:-gpt-oss:120b-cloud}
+  inference_secondary_model_name=${INFERENCE_SECONDARY_MODEL_NAME:-GPT OSS 120B Cloud}
   escape_sed() { printf '%s' "$1" | sed 's/[&|]/\\&/g'; }
   inference_api_url_escaped=$(escape_sed "$inference_api_url")
   inference_api_type_escaped=$(escape_sed "$inference_api_type")
   inference_provider_escaped=$(escape_sed "$inference_provider")
   inference_model_escaped=$(escape_sed "$inference_model")
   inference_model_name_escaped=$(escape_sed "$inference_model_name")
+  inference_secondary_model_escaped=$(escape_sed "$inference_secondary_model")
+  inference_secondary_model_name_escaped=$(escape_sed "$inference_secondary_model_name")
   trusted_proxy_escaped=$(escape_sed "$trusted_proxy")
   for manifest in "$repo_dir"/deploy/base/*.yaml; do
     sed \
@@ -41,6 +45,8 @@ apply_base() {
       -e "s|INFERENCE_API_URL|$inference_api_url_escaped|g" \
       -e "s|INFERENCE_API_TYPE|$inference_api_type_escaped|g" \
       -e "s|INFERENCE_PROVIDER|$inference_provider_escaped|g" \
+      -e "s|INFERENCE_SECONDARY_MODEL_NAME|$inference_secondary_model_name_escaped|g" \
+      -e "s|INFERENCE_SECONDARY_MODEL|$inference_secondary_model_escaped|g" \
       -e "s|INFERENCE_MODEL_NAME|$inference_model_name_escaped|g" \
       -e "s|INFERENCE_MODEL|$inference_model_escaped|g" \
       -e "s|OPENCLAW_TRUSTED_PROXY|$trusted_proxy_escaped|g" \

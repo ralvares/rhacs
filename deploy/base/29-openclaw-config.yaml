@@ -22,7 +22,8 @@ data:
           "workspace": "/home/node/.openclaw/workspace",
           "model": {"primary": "INFERENCE_PROVIDER/INFERENCE_MODEL"},
           "models": {
-            "INFERENCE_PROVIDER/INFERENCE_MODEL": {"alias": "INFERENCE_MODEL_NAME"}
+            "INFERENCE_PROVIDER/INFERENCE_MODEL": {"alias": "INFERENCE_MODEL_NAME"},
+            "INFERENCE_PROVIDER/INFERENCE_SECONDARY_MODEL": {"alias": "INFERENCE_SECONDARY_MODEL_NAME"}
           }
         }
       },
@@ -33,7 +34,8 @@ data:
             "apiKey": "${INFERENCE_API_TOKEN}",
             "api": "INFERENCE_API_TYPE",
             "models": [
-              {"id": "INFERENCE_MODEL", "name": "INFERENCE_MODEL_NAME", "reasoning": true, "input": ["text"], "contextWindow": 128000, "maxTokens": 8192}
+              {"id": "INFERENCE_MODEL", "name": "INFERENCE_MODEL_NAME", "reasoning": true, "input": ["text"], "contextWindow": 128000, "maxTokens": 8192},
+              {"id": "INFERENCE_SECONDARY_MODEL", "name": "INFERENCE_SECONDARY_MODEL_NAME", "reasoning": true, "input": ["text"], "contextWindow": 128000, "maxTokens": 8192}
             ]
           }
         }
