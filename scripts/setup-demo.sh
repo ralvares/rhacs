@@ -42,7 +42,7 @@ echo "[5/8] Removing conversations while preserving the paired demo browser..."
 sessions_json=$("$cli" -n ai-email-demo exec -c openclaw deployment/openclaw -- \
   node openclaw.mjs sessions list --all-agents --limit all --json)
 session_keys=$(printf '%s' "$sessions_json" | python3 -c \
-  'import json,sys; print("\n".join(s["key"] for s in json.load(sys.stdin).get("sessions", []) if s.get("key")))')
+  'import json,sys; print("\n".join(s["key"] for s in json.load(sys.stdin).get("sessions", []) if s.get("key") and s["key"] != "agent:main:main"))')
 if [ -n "$session_keys" ]; then
   printf '%s\n' "$session_keys" | while IFS= read -r session_key; do
     "$cli" -n ai-email-demo exec -c openclaw deployment/openclaw -- \
@@ -66,10 +66,10 @@ echo "[8/8] Verifying the presentation baseline..."
   --timeout=60s >/dev/null
 sessions_json=$("$cli" -n ai-email-demo exec -c openclaw deployment/openclaw -- \
   node openclaw.mjs sessions list --all-agents --limit all --json)
-session_count=$(printf '%s' "$sessions_json" | python3 -c \
-  'import json,sys; data=json.load(sys.stdin); print(data.get("totalCount", data.get("count", len(data.get("sessions", [])))))')
-[ "$session_count" -eq 0 ] || {
-  echo "session reset failed: $session_count conversation(s) remain" >&2
+disposable_session_count=$(printf '%s' "$sessions_json" | python3 -c \
+  'import json,sys; data=json.load(sys.stdin); print(sum(1 for s in data.get("sessions", []) if s.get("key") != "agent:main:main"))')
+[ "$disposable_session_count" -eq 0 ] || {
+  echo "session reset failed: $disposable_session_count disposable conversation(s) remain" >&2
   exit 1
 }
 
@@ -80,7 +80,7 @@ echo "  - receiver history is empty"
 echo "  - permissive before-policy is active"
 echo "  - no injected email was sent"
 echo "  - no chatbot request was executed"
-echo "  - prior agent conversations were removed"
+echo "  - prior disposable conversations were removed; OpenClaw's required main session remains"
 echo
 "$cli" -n ai-email-demo get routes
 echo
