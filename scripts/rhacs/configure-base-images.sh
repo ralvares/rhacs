@@ -11,7 +11,7 @@ api="https://${ROX_ENDPOINT}"
 auth=(-H "Authorization: Bearer $ROX_API_TOKEN" -H 'Content-Type: application/json')
 base_images=(
     'registry.access.redhat.com/ubi9/python-312|latest|mail-api,demo-sink|messaging-platform'
-    'registry.access.redhat.com/ubi9/nodejs-22|latest|openclaw:v1,openclaw:v2|ai-platform'
+    'registry.access.redhat.com/ubi9/nodejs-22|latest|openclaw:v1,openclaw:latest|ai-platform'
 )
 
 references=$(curl -ksS "${auth[@]}" "$api/v2/baseimages")
@@ -48,4 +48,3 @@ echo
 echo 'RHACS base-image references:'
 curl -ksS "${auth[@]}" "$api/v2/baseimages" | jq -r \
     '.baseImageReferences[] | "  " + .baseImageRepoPath + ":" + .baseImageTagPattern'
-

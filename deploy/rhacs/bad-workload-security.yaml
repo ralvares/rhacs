@@ -1,0 +1,27 @@
+# CI evidence only. This manifest must be rejected by `roxctl deployment check`
+# and must never be applied to a cluster.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openclaw-unsafe-candidate
+  namespace: ai-email-demo
+  labels: {app: openclaw, release: unsafe-manifest}
+  annotations: {demo.rhacs.ai/purpose: roxctl-negative-control-do-not-deploy}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: openclaw, release: unsafe-manifest}}
+  template:
+    metadata: {labels: {app: openclaw, release: unsafe-manifest}}
+    spec:
+      hostNetwork: true
+      containers:
+        - name: openclaw
+          image: REGISTRY_ROUTE/ai-email-demo/openclaw:v1
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          volumeMounts:
+            - {name: host-root, mountPath: /host}
+      volumes:
+        - name: host-root
+          hostPath: {path: /, type: Directory}

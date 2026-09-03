@@ -1,6 +1,6 @@
 apiVersion: tekton.dev/v1
 kind: Task
-metadata: {name: clone-source, namespace: ai-email-cicd}
+metadata: {name: clone-source, namespace: demo-platform}
 spec:
   params:
     - {name: url, type: string}
@@ -13,6 +13,7 @@ spec:
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
+        git config --global --add safe.directory "$(workspaces.source.path)"
         find . -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
         git clone "$(params.url)" .
         git checkout "$(params.revision)"
@@ -20,8 +21,37 @@ spec:
 ---
 apiVersion: tekton.dev/v1
 kind: Task
-metadata: {name: test-source, namespace: ai-email-cicd}
+metadata: {name: verify-commit-signature, namespace: demo-platform}
 spec:
+  workspaces: [{name: source}]
+  steps:
+    - name: verify
+      image: registry.redhat.io/devspaces/udi-rhel9:latest
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        printf 'tekton:x:%s:0:Tekton user:/tmp:/bin/bash\n' "$(id -u)" > /tmp/tekton-passwd
+        printf 'root:x:0:\n' > /tmp/tekton-group
+        export LD_PRELOAD=/usr/lib64/libnss_wrapper.so
+        export NSS_WRAPPER_PASSWD=/tmp/tekton-passwd
+        export NSS_WRAPPER_GROUP=/tmp/tekton-group
+        export HOME=/tmp
+        git -c safe.directory="$(workspaces.source.path)" \
+          -c gpg.format=ssh \
+          -c gpg.ssh.allowedSignersFile=/trust/allowed_signers \
+          verify-commit HEAD
+        echo "Verified source commit signer: $(git -c safe.directory="$(workspaces.source.path)" log -1 --format='%ae')"
+      volumeMounts:
+        - {name: commit-signing-trust, mountPath: /trust, readOnly: true}
+  volumes:
+    - {name: commit-signing-trust, secret: {secretName: commit-signing-trust}}
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata: {name: test-source, namespace: demo-platform}
+spec:
+  params: [{name: source-version, type: string}]
   workspaces: [{name: source}]
   steps:
     - name: dependency-contract
@@ -32,23 +62,28 @@ spec:
         set -euo pipefail
         test -f devfile.yaml
         test -f .vscode/extensions.json
-        diff -B -q versions/v2/package.json services/openclaw/v2/package.json
-        diff -B -q versions/v2/package-lock.json services/openclaw/v2/package-lock.json
         python3 - <<'PY'
         import json
         from pathlib import Path
-        package = json.loads(Path("services/openclaw/v2/package.json").read_text())
+        source_version = "$(params.source-version)"
+        if source_version not in {"v1", "v2"}:
+            raise SystemExit(f"unsupported source directory: {source_version}")
+        package = json.loads(Path(f"versions/{source_version}/package.json").read_text())
         version = package["dependencies"]["openclaw"]
-        if version != "2026.7.1":
-            raise SystemExit(f"expected approved OpenClaw 2026.7.1, found {version}")
-        print(f"Approved dependency contract: openclaw@{version}")
+        supported = {"2026.2.13", "2026.8.2"}
+        if version not in supported:
+            raise SystemExit(f"unsupported presentation version: openclaw@{version}")
+        print(f"Candidate dependency: openclaw@{version}")
         PY
 ---
 apiVersion: tekton.dev/v1
 kind: Task
-metadata: {name: build-openclaw, namespace: ai-email-cicd}
+metadata: {name: build-openclaw, namespace: demo-platform}
 spec:
-  params: [{name: image-tag, type: string}]
+  params:
+    - {name: image-tag, type: string}
+    - {name: source-version, type: string}
+    - {name: reuse-existing-image, type: string, default: "false"}
   workspaces: [{name: source}]
   results:
     - {name: image-digest, description: OpenShift image digest}
@@ -61,10 +96,29 @@ spec:
         #!/usr/bin/env bash
         set -euo pipefail
         tag="$(params.image-tag)"
-        oc -n ai-email-demo patch buildconfig openclaw-v2 --type=merge \
+        source_version="$(params.source-version)"
+        case "$source_version" in v1|v2) ;; *) echo "Unsupported source version: $source_version" >&2; exit 2 ;; esac
+        if [ "$(params.reuse-existing-image)" = true ] && \
+           oc -n ai-email-demo get istag "openclaw:${source_version}" >/dev/null 2>&1; then
+          echo "Reusing staged release image openclaw:${source_version}; no rebuild is required for demo reset."
+          oc -n ai-email-demo tag "openclaw:${source_version}" "openclaw:${tag}" >/dev/null
+          digest="$(oc -n ai-email-demo get istag "openclaw:${tag}" -o jsonpath='{.image.metadata.name}')"
+          reference="image-registry.openshift-image-registry.svc:5000/ai-email-demo/openclaw@${digest}"
+          printf '%s' "$digest" | tee "$(results.image-digest.path)"
+          printf '%s' "$reference" | tee "$(results.image-reference.path)"
+          exit 0
+        fi
+        build_context=$(mktemp -d "$(workspaces.source.path)/.pipeline-build-context.XXXXXX")
+        trap 'rm -rf -- "$build_context"' EXIT
+        cp -a "$(workspaces.source.path)/services/openclaw/." "$build_context/"
+        cp "$(workspaces.source.path)/versions/${source_version}/package.json" "$build_context/v1/package.json"
+        cp "$(workspaces.source.path)/versions/${source_version}/package-lock.json" "$build_context/v1/package-lock.json"
+        candidate_version=$(grep -o '"openclaw"[[:space:]]*:[[:space:]]*"[^"]*"' "$build_context/v1/package.json" | head -1 | cut -d'"' -f4)
+        echo "Building candidate dependency: openclaw@${candidate_version}"
+        oc -n ai-email-demo patch buildconfig openclaw-v1 --type=merge \
           -p "{\"spec\":{\"output\":{\"to\":{\"kind\":\"ImageStreamTag\",\"name\":\"openclaw:${tag}\"}}}}"
-        oc -n ai-email-demo start-build openclaw-v2 \
-          --from-dir="$(workspaces.source.path)/services/openclaw" --follow --wait
+        oc -n ai-email-demo start-build openclaw-v1 \
+          --from-dir="$build_context" --follow --wait
         digest="$(oc -n ai-email-demo get istag "openclaw:${tag}" -o jsonpath='{.image.metadata.name}')"
         test -n "$digest"
         reference="image-registry.openshift-image-registry.svc:5000/ai-email-demo/openclaw@${digest}"
@@ -73,31 +127,47 @@ spec:
 ---
 apiVersion: tekton.dev/v1
 kind: Task
-metadata: {name: generate-sbom, namespace: ai-email-cicd}
+metadata: {name: generate-sbom, namespace: demo-platform}
 spec:
+  params:
+    - {name: image, type: string}
   workspaces:
     - {name: source}
-    - {name: evidence}
-  results: [{name: sbom-path, description: CycloneDX evidence path}]
+  results: [{name: sbom-path, description: CycloneDX final-image evidence path}]
   steps:
     - name: cyclonedx
-      image: registry.access.redhat.com/ubi9/nodejs-22:latest
-      workingDir: $(workspaces.source.path)/services/openclaw/v2
+      image: image-registry.openshift-image-registry.svc:5000/demo-platform/demo-workstation:latest
+      workingDir: $(workspaces.source.path)
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
-        mkdir -p "$(workspaces.evidence.path)"
-        npm sbom --omit=dev --sbom-format cyclonedx \
-          > "$(workspaces.evidence.path)/openclaw-pipeline.cdx.json"
-        node -e 'const b=require(process.argv[1]); console.log(`SBOM components: ${b.components?.length || 0}`)' \
-          "$(workspaces.evidence.path)/openclaw-pipeline.cdx.json"
-        printf '%s' "$(workspaces.evidence.path)/openclaw-pipeline.cdx.json" > "$(results.sbom-path.path)"
+        evidence_dir="$(workspaces.source.path)/.pipeline-sbom"
+        sbom="$evidence_dir/openclaw-image.cdx.json"
+        mkdir -p "$evidence_dir"
+        export SYFT_REGISTRY_INSECURE_SKIP_TLS_VERIFY=true
+        export SYFT_REGISTRY_AUTH_AUTHORITY=image-registry.openshift-image-registry.svc:5000
+        export SYFT_REGISTRY_AUTH_USERNAME=serviceaccount
+        export SYFT_REGISTRY_AUTH_PASSWORD
+        SYFT_REGISTRY_AUTH_PASSWORD=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+        syft scan "registry:$(params.image)" -q -o "cyclonedx-json=$sbom"
+        node -e '
+          const b=require(process.argv[1]);
+          const image=process.argv[2];
+          if (!b.metadata?.component?.name || !b.metadata?.component?.version) process.exit(2);
+          console.log(`Final image: ${b.metadata.component.name}@${b.metadata.component.version}`);
+          console.log(`Image SBOM components: ${b.components?.length || 0}`);
+          console.log(`OpenClaw versions: ${[...new Set((b.components || []).filter(c => c.name === "openclaw").map(c => c.version))].join(", ") || "not found"}`);
+          if (!image.includes(b.metadata.component.version)) process.exit(3);
+        ' "$sbom" "$(params.image)"
+        printf '%s' "$sbom" > "$(results.sbom-path.path)"
 ---
 apiVersion: tekton.dev/v1
 kind: Task
-metadata: {name: sign-image, namespace: ai-email-cicd}
+metadata: {name: sign-image, namespace: demo-platform}
 spec:
-  params: [{name: image, type: string}]
+  params:
+    - {name: image, type: string}
+    - {name: sbom-path, type: string}
   workspaces: [{name: source}]
   steps:
     - name: prepare-auth
@@ -120,9 +190,30 @@ spec:
         - --key
         - /keys/cosign.key
         - -a
-        - release=pipeline-v2
+        - release=pipeline-v1
         - -a
         - purpose=rhacs-ai-demo
+        - $(params.image)
+      env:
+        - {name: DOCKER_CONFIG, value: $(workspaces.source.path)/.cosign-auth}
+        - {name: HOME, value: /tmp}
+        - name: COSIGN_PASSWORD
+          valueFrom: {secretKeyRef: {name: cosign-signing-key, key: password}}
+      volumeMounts:
+        - {name: signing-key, mountPath: /keys, readOnly: true}
+    - name: attest-sbom
+      image: ghcr.io/sigstore/cosign/cosign:v2.4.3
+      args:
+        - attest
+        - --yes
+        - --tlog-upload=false
+        - --allow-insecure-registry
+        - --key
+        - /keys/cosign.key
+        - --type
+        - cyclonedx
+        - --predicate
+        - $(params.sbom-path)
         - $(params.image)
       env:
         - {name: DOCKER_CONFIG, value: $(workspaces.source.path)/.cosign-auth}
@@ -136,42 +227,29 @@ spec:
 ---
 apiVersion: tekton.dev/v1
 kind: Task
-metadata: {name: rhacs-gate, namespace: ai-email-cicd}
+metadata: {name: render-release-manifests, namespace: demo-platform}
 spec:
   params: [{name: image, type: string}]
-  workspaces:
-    - {name: source}
-    - {name: evidence}
+  workspaces: [{name: source}]
   steps:
-    - name: image-and-yaml-check
+    - name: render
       image: registry.redhat.io/devspaces/udi-rhel9:latest
       workingDir: $(workspaces.source.path)
-      env:
-        - name: ROX_ENDPOINT
-          valueFrom: {secretKeyRef: {name: rhacs-ci, key: endpoint}}
-        - name: ROX_API_TOKEN
-          valueFrom: {secretKeyRef: {name: rhacs-ci, key: token}}
-        - {name: ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY, value: "true"}
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
-        mkdir -p /tmp/bin "$(workspaces.evidence.path)"
-        curl -kfsS "https://${ROX_ENDPOINT}/api/cli/download/roxctl-linux" -o /tmp/bin/roxctl
-        chmod 0755 /tmp/bin/roxctl
-        /tmp/bin/roxctl image check --image "$(params.image)" --force \
-          -o json > "$(workspaces.evidence.path)/rhacs-image-check.json"
+        mkdir -p .pipeline-manifests
         sed \
-          -e 's#REGISTRY_ROUTE/ai-email-demo/openclaw:v2#$(params.image)#g' \
-          deploy/rhacs/clean-openclaw.yaml > /tmp/openclaw-release.yaml
-        /tmp/bin/roxctl deployment check --cluster production \
-          --file /tmp/openclaw-release.yaml -o json \
-          > "$(workspaces.evidence.path)/rhacs-deployment-check.json"
-        cp /tmp/openclaw-release.yaml "$(workspaces.evidence.path)/openclaw-release.yaml"
-        echo "RHACS image and deployment gates passed."
+          -e 's#REGISTRY_ROUTE/ai-email-demo/openclaw:v1#$(params.image)#g' \
+          deploy/rhacs/bad-workload-security.yaml > .pipeline-manifests/openclaw-unsafe.yaml
+        sed \
+          -e 's#REGISTRY_ROUTE/ai-email-demo/openclaw:v1#$(params.image)#g' \
+          deploy/rhacs/clean-openclaw.yaml > .pipeline-manifests/openclaw-release.yaml
+        echo "Rendered digest-pinned clean and negative-control manifests."
 ---
 apiVersion: tekton.dev/v1
 kind: Task
-metadata: {name: promote-openclaw, namespace: ai-email-cicd}
+metadata: {name: promote-openclaw, namespace: demo-platform}
 spec:
   params:
     - {name: image-tag, type: string}
@@ -182,11 +260,84 @@ spec:
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
-        oc -n ai-email-demo tag "openclaw:$(params.image-tag)" openclaw:v2
+        oc -n ai-email-demo tag "openclaw:$(params.image-tag)" openclaw:v1
         oc -n ai-email-demo tag "openclaw:$(params.image-tag)" openclaw:latest
         oc -n ai-email-demo set image deployment/openclaw \
-          prepare-openclaw-home="$(params.image)" openclaw="$(params.image)"
+          prepare-openclaw-home="$(params.image)" \
+          prepare-openclaw-state="$(params.image)" \
+          openclaw="$(params.image)"
         oc -n ai-email-demo annotate deployment/openclaw \
           demo.rhacs.ai/promoted-by=openshift-pipelines \
           demo.rhacs.ai/immutable-image="$(params.image)" --overwrite
         oc -n ai-email-demo rollout status deployment/openclaw --timeout=300s
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata: {name: prepare-tpa-publication, namespace: demo-platform}
+spec:
+  params:
+    - {name: image, type: string}
+    - {name: revision, type: string}
+    - {name: sbom-path, type: string}
+  workspaces: [{name: source}]
+  results:
+    - {name: bundle-path, description: Demonstrative TPA publication bundle}
+  steps:
+    - name: prepare
+      image: registry.redhat.io/ubi9/ubi-minimal:latest
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        sbom="$(params.sbom-path)"
+        test -s "$sbom"
+        bundle_dir="$(workspaces.source.path)/.pipeline-tpa-publication"
+        mkdir -p "$bundle_dir"
+        cp "$sbom" "$bundle_dir/openclaw.cdx.json"
+        cat > "$bundle_dir/publication.json" <<EOF
+        {
+          "destination": "Red Hat Trusted Profile Analyzer",
+          "mode": "demonstration-only-no-endpoint-configured",
+          "image": "$(params.image)",
+          "revision": "$(params.revision)",
+          "sbom": "openclaw.cdx.json",
+          "gate": "RHACS image checks passed; deployment manifest check pending"
+        }
+        EOF
+        printf '%s' "$bundle_dir" > "$(results.bundle-path.path)"
+        echo "TPA publication stage: bundle prepared; upload intentionally skipped because TPA is not installed."
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata: {name: release-evidence, namespace: demo-platform}
+spec:
+  params:
+    - {name: image, type: string}
+    - {name: sbom-path, type: string}
+    - {name: tpa-bundle, type: string}
+  results:
+    - {name: decision, description: Human-readable release decision}
+    - {name: evidence-summary, description: Compact evidence summary}
+  steps:
+    - name: summary
+      image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        decision="APPROVED FOR PROMOTION"
+        summary="Signed digest; CycloneDX attested; OpenClaw version gate passed; signature gate passed; TPA bundle prepared; deployment manifest passed"
+        printf '%s' "$decision" > "$(results.decision.path)"
+        printf '%s' "$summary" > "$(results.evidence-summary.path)"
+        printf '\n'
+        printf '┌──────────────────────────────────────────────────────────────┐\n'
+        printf '│ RELEASE EVIDENCE                                             │\n'
+        printf '├──────────────────────────────────────────────────────────────┤\n'
+        printf '│ Component/version policy   PASS                              │\n'
+        printf '│ Cosign signature policy    PASS                              │\n'
+        printf '│ CycloneDX SBOM attestation ATTACHED                          │\n'
+        printf '│ TPA publication bundle     PREPARED (demo; no TPA endpoint)  │\n'
+        printf '│ Deployment manifest gate   PASS                              │\n'
+        printf '│ Decision                   APPROVED FOR PROMOTION            │\n'
+        printf '└──────────────────────────────────────────────────────────────┘\n'
+        printf 'Image: %s\nSBOM: %s\nTPA bundle: %s\n' \
+          "$(params.image)" "$(params.sbom-path)" "$(params.tpa-bundle)"

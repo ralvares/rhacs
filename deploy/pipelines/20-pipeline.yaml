@@ -2,15 +2,21 @@ apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
   name: openclaw-release
-  namespace: ai-email-cicd
+  namespace: demo-platform
 spec:
   params:
     - {name: git-url, type: string}
     - {name: revision, type: string}
     - {name: image-tag, type: string}
+    - {name: source-version, type: string, default: "v2"}
+    - {name: reuse-existing-image, type: string, default: "false"}
+    - {name: sign-candidate, type: string, default: "true"}
+    - {name: promote-candidate, type: string, default: "true"}
+    - {name: rox-central-endpoint, type: string, default: "central.stackrox.svc:443"}
+    - {name: roxctl-image, type: string, default: "quay.io/stackrox-io/roxctl:4.11.3"}
   workspaces:
     - {name: source}
-    - {name: evidence}
+    - {name: rox-api-token-auth}
   tasks:
     - name: clone
       taskRef: {name: clone-source}
@@ -19,34 +25,103 @@ spec:
         - {name: revision, value: $(params.revision)}
       workspaces: [{name: source, workspace: source}]
     - name: test
-      runAfter: [clone]
+      runAfter: [verify-commit]
       taskRef: {name: test-source}
+      params: [{name: source-version, value: $(params.source-version)}]
+      workspaces: [{name: source, workspace: source}]
+    - name: verify-commit
+      runAfter: [clone]
+      taskRef: {name: verify-commit-signature}
       workspaces: [{name: source, workspace: source}]
     - name: sbom
-      runAfter: [test]
+      runAfter: [build]
       taskRef: {name: generate-sbom}
+      params:
+        - {name: image, value: $(tasks.build.results.image-reference)}
       workspaces:
         - {name: source, workspace: source}
-        - {name: evidence, workspace: evidence}
     - name: build
       runAfter: [test]
       taskRef: {name: build-openclaw}
-      params: [{name: image-tag, value: $(params.image-tag)}]
+      params:
+        - {name: image-tag, value: $(params.image-tag)}
+        - {name: source-version, value: $(params.source-version)}
+        - {name: reuse-existing-image, value: $(params.reuse-existing-image)}
       workspaces: [{name: source, workspace: source}]
-    - name: sign
+    - name: render-manifests
       runAfter: [build]
-      taskRef: {name: sign-image}
+      taskRef: {name: render-release-manifests}
       params: [{name: image, value: $(tasks.build.results.image-reference)}]
       workspaces: [{name: source, workspace: source}]
-    - name: rhacs
-      runAfter: [sign, sbom]
-      taskRef: {name: rhacs-gate}
-      params: [{name: image, value: $(tasks.build.results.image-reference)}]
+    - name: rhacs-image-scan
+      runAfter: [build]
+      taskRef: {name: rhacs-image-scan}
+      params:
+        - {name: image, value: $(tasks.build.results.image-reference)}
+        - {name: rox_central_endpoint, value: $(params.rox-central-endpoint)}
+        - {name: rox_image, value: $(params.roxctl-image)}
+        - {name: rox_token_file, value: /rox-api-token-auth/rox_api_token}
+        - {name: insecure-skip-tls-verify, value: "true"}
+        - {name: output_format, value: table}
+      workspaces:
+        - {name: rox-api-token-auth, workspace: rox-api-token-auth}
+    - name: sign
+      runAfter: [rhacs-image-scan, sbom]
+      when:
+        - input: $(params.sign-candidate)
+          operator: in
+          values: ["true"]
+      taskRef: {name: sign-image}
+      params:
+        - {name: image, value: $(tasks.build.results.image-reference)}
+        - {name: sbom-path, value: $(tasks.sbom.results.sbom-path)}
+      workspaces: [{name: source, workspace: source}]
+    - name: rhacs-image-check
+      runAfter: [sign]
+      taskRef: {name: rhacs-image-check}
+      params:
+        - {name: image, value: $(tasks.build.results.image-reference)}
+        - {name: rox_central_endpoint, value: $(params.rox-central-endpoint)}
+        - {name: rox_image, value: $(params.roxctl-image)}
+        - {name: rox_token_file, value: /rox-api-token-auth/rox_api_token}
+        - {name: insecure-skip-tls-verify, value: "true"}
+        - {name: output_format, value: table}
+      workspaces:
+        - {name: rox-api-token-auth, workspace: rox-api-token-auth}
+    - name: prepare-tpa-publication
+      runAfter: [rhacs-image-check, sbom]
+      taskRef: {name: prepare-tpa-publication}
+      params:
+        - {name: image, value: $(tasks.build.results.image-reference)}
+        - {name: revision, value: $(params.revision)}
+        - {name: sbom-path, value: $(tasks.sbom.results.sbom-path)}
+      workspaces: [{name: source, workspace: source}]
+    - name: rhacs-deployment-check
+      runAfter: [prepare-tpa-publication, render-manifests]
+      taskRef: {name: rhacs-deployment-check}
+      params:
+        - {name: deployment, value: .pipeline-manifests/openclaw-release.yaml}
+        - {name: rox_central_endpoint, value: $(params.rox-central-endpoint)}
+        - {name: rox_image, value: $(params.roxctl-image)}
+        - {name: rox_token_file, value: /rox-api-token-auth/rox_api_token}
+        - {name: insecure-skip-tls-verify, value: "true"}
+        - {name: output_format, value: table}
       workspaces:
         - {name: source, workspace: source}
-        - {name: evidence, workspace: evidence}
+        - {name: rox-api-token-auth, workspace: rox-api-token-auth}
+    - name: release-evidence
+      runAfter: [rhacs-deployment-check]
+      taskRef: {name: release-evidence}
+      params:
+        - {name: image, value: $(tasks.build.results.image-reference)}
+        - {name: sbom-path, value: $(tasks.sbom.results.sbom-path)}
+        - {name: tpa-bundle, value: $(tasks.prepare-tpa-publication.results.bundle-path)}
     - name: promote
-      runAfter: [rhacs]
+      runAfter: [release-evidence]
+      when:
+        - input: $(params.promote-candidate)
+          operator: in
+          values: ["true"]
       taskRef: {name: promote-openclaw}
       params:
         - {name: image-tag, value: $(params.image-tag)}
@@ -54,3 +129,47 @@ spec:
   results:
     - {name: image, value: $(tasks.build.results.image-reference)}
     - {name: sbom, value: $(tasks.sbom.results.sbom-path)}
+    - {name: tpa-publication-bundle, value: $(tasks.prepare-tpa-publication.results.bundle-path)}
+    - {name: release-decision, value: $(tasks.release-evidence.results.decision)}
+    - {name: evidence-summary, value: $(tasks.release-evidence.results.evidence-summary)}
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: rhacs-unsafe-manifest-proof
+  namespace: demo-platform
+spec:
+  params:
+    - {name: git-url, type: string}
+    - {name: revision, type: string}
+    - {name: image, type: string}
+    - {name: rox-central-endpoint, type: string, default: "central.stackrox.svc:443"}
+    - {name: roxctl-image, type: string, default: "quay.io/stackrox-io/roxctl:4.11.3"}
+  workspaces:
+    - {name: source}
+    - {name: rox-api-token-auth}
+  tasks:
+    - name: clone
+      taskRef: {name: clone-source}
+      params:
+        - {name: url, value: $(params.git-url)}
+        - {name: revision, value: $(params.revision)}
+      workspaces: [{name: source, workspace: source}]
+    - name: render-manifests
+      runAfter: [clone]
+      taskRef: {name: render-release-manifests}
+      params: [{name: image, value: $(params.image)}]
+      workspaces: [{name: source, workspace: source}]
+    - name: expect-rhacs-rejection
+      runAfter: [render-manifests]
+      taskRef: {name: rhacs-deployment-check}
+      params:
+        - {name: deployment, value: .pipeline-manifests/openclaw-unsafe.yaml}
+        - {name: rox_central_endpoint, value: $(params.rox-central-endpoint)}
+        - {name: rox_image, value: $(params.roxctl-image)}
+        - {name: rox_token_file, value: /rox-api-token-auth/rox_api_token}
+        - {name: insecure-skip-tls-verify, value: "true"}
+        - {name: output_format, value: table}
+      workspaces:
+        - {name: source, workspace: source}
+        - {name: rox-api-token-auth, workspace: rox-api-token-auth}

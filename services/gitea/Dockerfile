@@ -3,7 +3,7 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 ARG GITEA_VERSION=1.24.6
 
 USER 0
-RUN microdnf install -y ca-certificates curl git git-lfs openssh-clients && \
+RUN microdnf install -y ca-certificates git git-lfs openssh-clients nss_wrapper && \
     microdnf clean all && \
     arch="$(uname -m)" && \
     case "$arch" in \
@@ -17,10 +17,12 @@ RUN microdnf install -y ca-certificates curl git git-lfs openssh-clients && \
     mkdir -p /data/gitea /data/git /etc/gitea && \
     chgrp -R 0 /data /etc/gitea && chmod -R g=u /data /etc/gitea
 
-ENV USER=demo \
+ENV USER=git \
     HOME=/data/gitea \
     GITEA_WORK_DIR=/data/gitea
 
 EXPOSE 3000
-ENTRYPOINT ["/usr/local/bin/gitea"]
+COPY entrypoint.sh /usr/local/bin/gitea-entrypoint
+RUN chmod 0755 /usr/local/bin/gitea-entrypoint
+ENTRYPOINT ["/usr/local/bin/gitea-entrypoint"]
 CMD ["web"]

@@ -1,10 +1,10 @@
 apiVersion: image.openshift.io/v1
 kind: ImageStream
-metadata: {name: gitea, namespace: ai-email-cicd}
+metadata: {name: gitea, namespace: demo-platform}
 ---
 apiVersion: build.openshift.io/v1
 kind: BuildConfig
-metadata: {name: gitea, namespace: ai-email-cicd}
+metadata: {name: gitea, namespace: demo-platform}
 spec:
   source: {type: Binary}
   strategy:

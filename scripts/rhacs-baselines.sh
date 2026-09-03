@@ -25,6 +25,8 @@
 #                                                    optionally lock right away
 #   rhacs-pb-add    NS/DEPLOYMENT CONTAINER PROCESS [PROCESS...] [--lock]
 #                                                    declare processes inline, no file needed
+#   rhacs-pb-replace NS/DEPLOYMENT CONTAINER PROCESS [PROCESS...]
+#                                                    replace the container baseline exactly
 #   rhacs-pb-remove NS/DEPLOYMENT CONTAINER PROCESS [PROCESS...]
 #                                                    remove processes from the baseline
 #   rhacs-pb-lock   NS/DEPLOYMENT                    lock all containers of the deployment
@@ -270,6 +272,41 @@ rhacs-pb-remove() {
         echo "remove failed:" >&2; jq -r '.errors[].error' <<<"$response" >&2; return 1
     fi
     echo "container $container: removed ${#procs[@]} process(es)"
+}
+
+# Make a process baseline declarative. Unlike rhacs-pb-add, this removes stale
+# learned or declared entries first, so repeated demo resets cannot grow the
+# allowlist. The requested processes are then restored as explicit entries.
+rhacs-pb-replace() {
+    local target="${1:-}" container="${2:-}" procs=()
+    shift 2 2>/dev/null || {
+        echo "usage: rhacs-pb-replace NAMESPACE/DEPLOYMENT CONTAINER PROCESS [PROCESS...]" >&2
+        return 1
+    }
+    while [ $# -gt 0 ]; do procs+=("$1"); shift; done
+    if [ -z "$target" ] || [ -z "$container" ] || [ ${#procs[@]} -eq 0 ]; then
+        echo "usage: rhacs-pb-replace NAMESPACE/DEPLOYMENT CONTAINER PROCESS [PROCESS...]" >&2
+        return 1
+    fi
+    _roxb_resolve "$target" || return 1
+
+    local baseline body response
+    baseline=$(_roxb_curl GET "/v1/processbaselines/key?key.deploymentId=$DEPLOY_ID&key.containerName=$container&key.clusterId=$CLUSTER_ID&key.namespace=$NS") || return 1
+    body=$(jq -n --arg dep "$DEPLOY_ID" --arg c "$container" --arg cluster "$CLUSTER_ID" --arg ns "$NS" \
+        --argjson current "$(jq '[.elements[]?.element | {processName}] | unique_by(.processName)' <<<"$baseline")" '{
+            keys: [{deploymentId: $dep, containerName: $c, clusterId: $cluster, namespace: $ns}],
+            removeElements: $current
+        }')
+    if [ "$(jq '.removeElements | length' <<<"$body")" -gt 0 ]; then
+        response=$(_roxb_curl PUT "/v1/processbaselines" "$body") || return 1
+        if [ -n "$(jq -r '.errors[]?.error // empty' <<<"$response")" ]; then
+            echo "replace cleanup failed:" >&2
+            jq -r '.errors[].error' <<<"$response" >&2
+            return 1
+        fi
+    fi
+    rhacs-pb-add "$target" "$container" "${procs[@]}"
+    echo "container $container: baseline replaced with ${#procs[@]} process(es)"
 }
 
 _roxb_pb_setlock() {

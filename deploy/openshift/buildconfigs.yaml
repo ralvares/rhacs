@@ -49,21 +49,6 @@ spec:
 apiVersion: build.openshift.io/v1
 kind: BuildConfig
 metadata:
-  name: openclaw-v2
-  namespace: ai-email-demo
-spec:
-  source: {type: Binary}
-  strategy:
-    type: Docker
-    dockerStrategy: {dockerfilePath: v2/Dockerfile}
-  output:
-    to: {kind: ImageStreamTag, name: "openclaw:v2"}
-  successfulBuildsHistoryLimit: 2
-  failedBuildsHistoryLimit: 2
----
-apiVersion: build.openshift.io/v1
-kind: BuildConfig
-metadata:
   name: demo-sink
   namespace: ai-email-demo
 spec:

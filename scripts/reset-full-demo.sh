@@ -53,9 +53,42 @@ active_demo_alert_count() {
     local namespace alerts total=0
     for namespace in ai-email-demo demo-webhook external-sender; do
         alerts=$(central_api GET "/v1/alerts?query=Namespace%3A${namespace}")
-        total=$((total + $(jq '[.alerts[]? | select(.state == "ACTIVE")] | length' <<<"$alerts")))
+        total=$((total + $(jq '[.alerts[]? | select(
+          .state == "ACTIVE" and
+          .policy.name != "Demo - Critical OpenClaw release blocked" and
+          .policy.name != "Demo - Unsigned OpenClaw release blocked"
+        )] | length' <<<"$alerts")))
     done
     printf '%s\n' "$total"
+}
+
+delete_demo_gates() {
+    local policy_name policy_id policies
+    oc -n stackrox delete securitypolicy \
+        demo-unsigned-openclaw-release-blocked \
+        demo-critical-openclaw-release-blocked \
+        --ignore-not-found --wait=true >/dev/null
+    for policy_name in \
+        "Demo - Unsigned OpenClaw release blocked" \
+        "Demo - Critical OpenClaw release blocked"; do
+        policy_id=$(central_api GET /v1/policies | jq -r --arg name "$policy_name" \
+            '.policies[]? | select(.name == $name) | .id' | head -n 1)
+        [ -n "$policy_id" ] || continue
+        central_api DELETE "/v1/policies/$policy_id" >/dev/null
+        echo "Deleted reset-time policy: $policy_name"
+    done
+    for _ in $(seq 1 30); do
+        policies=$(central_api GET /v1/policies)
+        if ! jq -e --arg signature "Demo - Unsigned OpenClaw release blocked" \
+            --arg version "Demo - Critical OpenClaw release blocked" \
+            '.policies[]? | select(.name == $signature or .name == $version)' \
+            <<<"$policies" >/dev/null; then
+            return 0
+        fi
+        sleep 2
+    done
+    echo "The custom RHACS policies were not removed before the rebuild window." >&2
+    return 1
 }
 
 reconcile_clean_demo_exclusions() {
@@ -107,11 +140,19 @@ echo "This reset recreates every demo Deployment and reconciles RHACS without re
 echo "RHACS Central and Scanner data are preserved. Internal-registry images are reused."
 echo
 
-echo "[1/7] Resolving runtime alerts attached to the previous demo identities..."
+"$repo_dir/scripts/cleanup-demo-artifacts.sh" --all
+# Remove the EventListener and route before the repository seed push. The
+# complete trigger manifest is applied again only after Gitea is clean.
+oc delete -f "$repo_dir/deploy/pipelines/30-trigger.yaml" --ignore-not-found --wait=true >/dev/null 2>&1 || true
+
+echo "[1/11] Removing the two custom gates before rebuilding the affected v1 workload..."
+delete_demo_gates
+
+echo "[2/11] Resolving runtime alerts attached to the previous demo identities..."
 resolved_before=$(resolve_demo_alerts)
 echo "Resolved $resolved_before runtime alert(s); deployment findings retire with their old identities."
 
-echo "[2/7] Deleting every application Deployment so OpenShift and RHACS receive new identities..."
+echo "[3/11] Deleting every application Deployment so OpenShift and RHACS receive new identities..."
 oc -n external-sender delete job external-html-sender callback-html-sender --ignore-not-found >/dev/null 2>&1 || true
 for namespace in ai-email-demo demo-webhook; do
     if oc get namespace "$namespace" >/dev/null 2>&1; then
@@ -119,11 +160,11 @@ for namespace in ai-email-demo demo-webhook; do
     fi
 done
 
-echo "[3/7] Recreating the workload from manifests with the existing internal images..."
+echo "[4/11] Recreating the affected v1 workload from staged images..."
 DEMO_SKIP_CHAT_SMOKE_TEST=true OPENSHIFT_REBUILD_IMAGES=false \
     "$repo_dir/scripts/setup.sh" openshift
 
-echo "[4/7] Reapplying RHACS registry access, base images, policies, and locked baselines..."
+echo "[5/11] Re-enabling RHACS gates, registry access, base images, and baselines..."
 env -u ROX_ENDPOINT -u ROX_API_TOKEN \
     "$repo_dir/scripts/setup-rhacs-demo.sh" --skip-install
 
@@ -139,26 +180,17 @@ if [ -f "$rhacs_env" ]; then
     fi
 fi
 
-echo "[5/7] Refreshing the cached v1/v2 RHACS evidence used during the presentation..."
+echo "[6/11] Refreshing the cached affected-v1 RHACS evidence used during the presentation..."
 echo "Scoping generic deployment-noise policies away from the demo namespaces..."
 reconcile_clean_demo_exclusions
 "$repo_dir/scripts/prepare-supply-chain-demo.sh"
 
-echo "[6/7] Waiting for Sensor to settle, then clearing alerts from the reset itself..."
-resolved_after=0
-for _ in 1 2 3; do
-    sleep 5
-    resolved_now=$(resolve_demo_alerts)
-    resolved_after=$((resolved_after + resolved_now))
-done
-remaining_alerts=$(active_demo_alert_count)
-[ "$remaining_alerts" -eq 0 ] || {
-    echo "The demo still has $remaining_alerts active RHACS alert(s) after reset." >&2
-    exit 1
-}
-echo "Resolved $resolved_after reset-time alert(s); zero active demo alerts remain."
+echo "[7/11] Waiting for Sensor to settle, then clearing alerts from the reset itself..."
+sleep 5
+resolved_after=$(resolve_demo_alerts)
+echo "Resolved $resolved_after reset-time alert(s); final retirement is checked after workspace staging."
 
-echo "[7/7] Verifying workloads, policies, base-image configuration, and baselines..."
+echo "[8/11] Verifying workloads, policies, base-image configuration, and baselines..."
 oc -n ai-email-demo wait --for=condition=Available deployment --all --timeout=180s >/dev/null
 oc -n demo-webhook wait --for=condition=Available deployment --all --timeout=180s >/dev/null
 
@@ -176,6 +208,73 @@ rhacs-pb-audit demo-webhook/demo-webhook
 rhacs-nb-list ai-email-demo/openclaw
 rhacs-nb-list demo-webhook/demo-webhook
 
+echo "[9/11] Resetting Gitea, webhook delivery, Dev Spaces, and pipeline resources..."
+DEMO_REBUILD_WORKSTATION=false DEMO_RECREATE_GITEA_REPOSITORY=true \
+    "$repo_dir/scripts/setup-pipelines.sh"
+
+echo "[10/11] Staging the failed-v1 and approved-v2 PipelineRuns for the presentation..."
+"$repo_dir/scripts/stage-affected-pipeline.sh"
+"$repo_dir/scripts/stage-approved-pipeline.sh"
+
+echo "Enabling RHACS deployment-create admission after both candidate decisions are cached..."
+"$repo_dir/scripts/rhacs/configure-signature-policy.sh"
+
+pipeline_runs=$(oc -n demo-platform get pipelineruns \
+    -l app.kubernetes.io/name=openclaw-release -o json)
+pipeline_run_count=$(jq '.items | length' <<<"$pipeline_runs")
+[ "$pipeline_run_count" -eq 2 ] || {
+    echo "Expected exactly two presentation PipelineRuns; found $pipeline_run_count." >&2
+    exit 1
+}
+pipeline_run=$(jq -r '.items[] | select(.status.conditions[0].status == "False") | .metadata.name' <<<"$pipeline_runs")
+gate_pod=$(oc -n demo-platform get taskrun \
+    -l "tekton.dev/pipelineRun=${pipeline_run},tekton.dev/pipelineTask=rhacs-image-check" \
+    -o jsonpath='{.items[0].status.podName}')
+[ -n "$gate_pod" ] || { echo "RHACS image-check Task pod was not recorded." >&2; exit 1; }
+oc -n demo-platform logs "$gate_pod" --all-containers --prefix >/dev/null 2>&1 || {
+    echo "RHACS image-check logs are not retained for $gate_pod." >&2
+    exit 1
+}
+echo "RHACS image-check logs retained in pod: $gate_pod"
+
+# The OpenShift console also reads Tekton Results. A clean Kubernetes API is
+# not sufficient if older archived records remain in that database.
+postgres=$(oc -n openshift-pipelines get pod \
+    -l app.kubernetes.io/name=tekton-results-postgres \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+if [ -n "$postgres" ]; then
+    result_count=$(oc -n openshift-pipelines exec "$postgres" -- sh -lc \
+      "PGPASSWORD=\"\$POSTGRESQL_PASSWORD\" psql -U \"\$POSTGRESQL_USER\" -d \"\$POSTGRESQL_DATABASE\" -Atc \"SELECT count(*) FROM results WHERE parent = 'demo-platform';\"")
+    [ "$result_count" -eq 2 ] || {
+        echo "Expected exactly two Tekton Results entries; found $result_count." >&2
+        exit 1
+    }
+    echo "Tekton Results contains exactly two presentation runs."
+fi
+
+# Workspace startup and the staged pipeline can produce late reset-time events
+# after the earlier cleanup. Resolve that bounded set once, then use only
+# read-only convergence checks while Sensor retires the old identities.
+resolved_final=$(resolve_demo_alerts)
+echo "Resolved $resolved_final late reset-time alert(s) before final convergence."
+zero_checks=0
+remaining_alerts=0
+for _ in $(seq 1 36); do
+    remaining_alerts=$(active_demo_alert_count)
+    if [ "$remaining_alerts" -eq 0 ]; then
+        zero_checks=$((zero_checks + 1))
+        [ "$zero_checks" -ge 2 ] && break
+    else
+        zero_checks=0
+    fi
+    sleep 5
+done
+[ "$remaining_alerts" -eq 0 ] || {
+    echo "The demo still has $remaining_alerts active RHACS alert(s) after final convergence." >&2
+    exit 1
+}
+echo "[11/11] Verified zero unexpected active alerts after final convergence."
+
 echo
 echo "Fresh demo environment is ready."
 echo "  - all application Deployments were deleted and recreated"
@@ -183,8 +282,13 @@ echo "  - RHACS Central and Scanner data were preserved"
 echo "  - internal-registry integration and approved base images were reconciled"
 echo "  - component-version, signature, and file-activity policies were reconciled"
 echo "  - process and network baselines were rebuilt for the new deployment identities"
-echo "  - cached v1/v2 evidence was refreshed"
+echo "  - cached affected-v1 evidence was refreshed"
+echo "  - Gitea was force-reset to one signed source commit for the affected v1 code"
+echo "  - Dev Spaces was recreated with the tested RHDA and terminal environment"
+echo "  - one rejected v1 and one approved-but-not-deployed v2 PipelineRun were staged"
+echo "  - RHACS deployment admission is enabled for the final one-command v2 promotion"
 echo "  - mailbox, OpenClaw sessions, receiver evidence, and egress state are clean"
-echo "  - active alerts in the three demo namespaces: 0"
+echo "  - unexpected active alerts in the three demo namespaces: 0"
+echo "  - the two intentional v1 deploy findings remain visible in RHACS"
 echo
 CLI=oc "$repo_dir/scripts/show-demo-credentials.sh"

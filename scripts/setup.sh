@@ -22,6 +22,7 @@ apply_base() {
   cli=$1
   replacement=$2
   webmail_image=$3
+  trusted_proxy=${4:-127.0.0.1}
   inference_api_url=${INFERENCE_API_URL:-http://host.crc.testing:11434}
   inference_api_type=${INFERENCE_API_TYPE:-ollama}
   inference_provider=${INFERENCE_PROVIDER:-ollama}
@@ -33,6 +34,7 @@ apply_base() {
   inference_provider_escaped=$(escape_sed "$inference_provider")
   inference_model_escaped=$(escape_sed "$inference_model")
   inference_model_name_escaped=$(escape_sed "$inference_model_name")
+  trusted_proxy_escaped=$(escape_sed "$trusted_proxy")
   for manifest in "$repo_dir"/deploy/base/*.yaml; do
     sed \
       -e "s#IMAGE_REGISTRY/ai-email-demo#$replacement#g" \
@@ -41,6 +43,7 @@ apply_base() {
       -e "s|INFERENCE_PROVIDER|$inference_provider_escaped|g" \
       -e "s|INFERENCE_MODEL_NAME|$inference_model_name_escaped|g" \
       -e "s|INFERENCE_MODEL|$inference_model_escaped|g" \
+      -e "s|OPENCLAW_TRUSTED_PROXY|$trusted_proxy_escaped|g" \
       -e "s|WEBMAIL_IMAGE|$webmail_image|g" \
       "$manifest" | "$cli" apply -f -
   done
@@ -94,14 +97,15 @@ if [ "$platform" = "openshift" ]; then
   }
   build_if_needed mail-api mail-api:latest "$repo_dir/services/mail-api"
   build_if_needed openclaw-v1 openclaw:v1 "$repo_dir/services/openclaw"
-  build_if_needed openclaw-v2 openclaw:v2 "$repo_dir/services/openclaw"
-  oc -n ai-email-demo tag openclaw:v2 openclaw:latest
+  oc -n ai-email-demo tag openclaw:v1 openclaw:latest
   build_if_needed demo-sink demo-sink:latest "$repo_dir/services/unauthorized-demo-service"
   echo "Importing the approved pinned Roundcube digest into the internal registry..."
   oc -n ai-email-demo import-image webmail:1.7.3-apache-nonroot \
     --from="$roundcube_source" --confirm --reference-policy=local
   webmail_internal="image-registry.openshift-image-registry.svc:5000/ai-email-demo/webmail@${roundcube_digest}"
-  apply_base oc "image-registry.openshift-image-registry.svc:5000/ai-email-demo" "$webmail_internal"
+  # Start closed. After the Route is live, setup learns the immediate proxy
+  # address observed by OpenClaw and replaces this bootstrap-only value.
+  apply_base oc "image-registry.openshift-image-registry.svc:5000/ai-email-demo" "$webmail_internal" "127.0.0.1"
   oc -n ai-email-demo rollout restart deployment/mail-server deployment/mail-api deployment/openclaw
   oc apply -f "$repo_dir/deploy/openshift/routes.yaml"
   oc -n ai-email-demo delete networkpolicy openclaw-egress-after --ignore-not-found
@@ -111,6 +115,66 @@ if [ "$platform" = "openshift" ]; then
   oc -n ai-email-demo rollout status deployment/mail-api --timeout=180s
   oc -n ai-email-demo rollout status deployment/openclaw --timeout=180s
   oc -n ai-email-demo rollout status deployment/unauthorized-demo-service --timeout=180s
+  openclaw_route=$(oc -n ai-email-demo get route openclaw -o jsonpath='{.spec.host}')
+  # A harmless WebSocket upgrade makes OpenClaw record the real immediate
+  # OpenShift proxy address. A plain HTTP GET does not reach the Gateway's
+  # proxy-attribution path. This remains exact when CRC networking changes and
+  # does not depend on a browser already being open.
+  curl --insecure --silent --http1.1 --max-time 3 --output /dev/null \
+    -H 'Connection: Upgrade' \
+    -H 'Upgrade: websocket' \
+    -H 'Sec-WebSocket-Version: 13' \
+    -H 'Sec-WebSocket-Key: ZGVtby1wcm94eS1wcm9iZQ==' \
+    "https://${openclaw_route}/" || true
+  proxy_ip=""
+  attempts=0
+  while [ -z "$proxy_ip" ] && [ "$attempts" -lt 10 ]; do
+    proxy_ip=$(oc -n ai-email-demo logs deployment/openclaw --since=30s 2>/dev/null |
+      sed -n \
+        -e 's/.*unattributable proxy-shaped traffic from \([^; ]*\).*/\1/p' \
+        -e 's/.*closed before connect .* remote=\([^ ]*\) fwd=.*/\1/p' |
+      tail -n 1)
+    [ -n "$proxy_ip" ] || sleep 1
+    attempts=$((attempts + 1))
+  done
+  case "$proxy_ip" in
+    ''|*[!0-9a-fA-F:.]*)
+      echo "Unable to learn a valid OpenShift Route proxy address from OpenClaw." >&2
+      exit 1
+      ;;
+  esac
+  router_ip=$(oc -n openshift-ingress get pods \
+    -l ingresscontroller.operator.openshift.io/deployment-ingresscontroller=default \
+    -o jsonpath='{.items[0].status.podIP}')
+  case "$router_ip" in
+    ''|*[!0-9a-fA-F:.]*)
+      echo "Unable to discover a valid OpenShift router address." >&2
+      exit 1
+      ;;
+  esac
+  echo "Configuring the dynamically discovered OpenShift Route proxy chain for OpenClaw."
+  oc -n ai-email-demo get configmap openclaw-config -o json |
+    jq --arg proxy_ip "$proxy_ip" --arg router_ip "$router_ip" \
+      '.data["openclaw.json"] |= (fromjson | .gateway.trustedProxies = [$proxy_ip, $router_ip] | tojson)' |
+    oc apply -f -
+  oc -n ai-email-demo rollout restart deployment/openclaw
+  oc -n ai-email-demo rollout status deployment/openclaw --timeout=180s
+  # Deployment availability can precede HAProxy endpoint propagation by a few
+  # seconds on single-node CRC. Require a successful Route response, but retry
+  # the transient 503 window instead of making reset timing-dependent.
+  route_ready=false
+  for _ in $(seq 1 30); do
+    if curl --insecure --fail --silent --output /dev/null "https://${openclaw_route}/"; then
+      route_ready=true
+      break
+    fi
+    sleep 2
+  done
+  [ "$route_ready" = true ] || {
+    echo "OpenClaw Route did not become ready after proxy configuration." >&2
+    exit 1
+  }
+  echo "OpenClaw Route proxy attribution verified."
   "$repo_dir/scripts/setup-external-demo.sh"
   echo "Checking OpenClaw's configured inference connection..."
   oc -n ai-email-demo exec deployment/openclaw -- node openclaw.mjs models list --provider "${INFERENCE_PROVIDER:-ollama}"

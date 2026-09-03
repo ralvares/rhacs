@@ -3,9 +3,8 @@ set -euo pipefail
 
 namespace=${DEMO_WEBHOOK_NAMESPACE:-demo-webhook}
 deployment=${DEMO_WEBHOOK_DEPLOYMENT:-demo-webhook}
-tail_lines=${DEMO_WEBHOOK_LOG_TAIL:-1000}
 
-for command_name in oc jq; do
+for command_name in oc curl jq; do
     command -v "$command_name" >/dev/null 2>&1 || {
         echo "$command_name is required" >&2
         exit 1
@@ -28,23 +27,13 @@ else
     reset=''
 fi
 
-logs=$(oc -n "$namespace" logs "deployment/$deployment" --tail="$tail_lines")
-
-latest_event() {
-    local marker=$1
-    printf '%s\n' "$logs" | awk -v marker="$marker" '
-        index($0, marker) {
-            value = substr($0, index($0, marker) + length(marker))
-        }
-        END { if (value != "") print value }
-    '
-}
-
-callback=$(latest_event 'DEMO_CALLBACK_RECEIVED ')
-environment=$(latest_event 'DEMO_ENV_FILE_RECEIVED ')
+receiver_host=$(oc -n "$namespace" get route "$deployment" -o jsonpath='{.spec.host}')
+events=$(curl -kfsS --connect-timeout 5 --max-time 15 "https://${receiver_host}/requests")
+callback=$(jq -c '[.[] | select(.event == "synthetic-callback")] | last // empty' <<<"$events")
+environment=$(jq -c '[.[] | select(.event == "synthetic-environment-file")] | last // empty' <<<"$events")
 
 printf '\n%s%sDEMO RECEIVER EVIDENCE%s\n' "$bold" "$red" "$reset"
-printf '%sLatest relevant events from %s/%s%s\n' "$dim" "$namespace" "$deployment" "$reset"
+printf '%sCurrent recorded events from %s/%s%s\n' "$dim" "$namespace" "$deployment" "$reset"
 
 if [ -n "$callback" ] && jq -e . >/dev/null 2>&1 <<<"$callback"; then
     printf '\n%s%s1. CALLBACK RECEIVED%s\n' "$bold" "$cyan" "$reset"
@@ -61,7 +50,7 @@ if [ -n "$callback" ] && jq -e . >/dev/null 2>&1 <<<"$callback"; then
     ' <<<"$callback"
 else
     printf '\n%s%s1. CALLBACK%s\n' "$bold" "$cyan" "$reset"
-    printf '  No callback event is present in the latest %s log lines.\n' "$tail_lines"
+    printf '  No callback event is present in the receiver state.\n'
 fi
 
 if [ -n "$environment" ] && jq -e . >/dev/null 2>&1 <<<"$environment"; then
@@ -77,7 +66,7 @@ if [ -n "$environment" ] && jq -e . >/dev/null 2>&1 <<<"$environment"; then
     ' <<<"$environment"
 else
     printf '\n%s%s2. SYNTHETIC ENVIRONMENT FILE%s\n' "$bold" "$cyan" "$reset"
-    printf '  No environment-file event is present in the latest %s log lines.\n' "$tail_lines"
+    printf '  No environment-file event is present in the receiver state.\n'
 fi
 
 printf '\n%sOnly synthetic demonstration data is shown.%s\n\n' "$dim" "$reset"

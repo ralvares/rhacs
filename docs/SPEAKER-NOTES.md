@@ -1,8 +1,56 @@
 # Speaker notes: securing AI workloads from code to cluster
 
+## Delivery transition script
+
+> “Now we move from developer feedback to a release decision. This browser workspace is OpenShift Dev Spaces. It already contains Git, OpenShift CLI, RHACS CLI, Kustomize, SBOM tools, and Cosign. Nothing is installed on the presenter laptop.”
+
+> “The developer commit is signed, and the pipeline verifies that signature first. OpenShift builds the image and generates a CycloneDX SBOM. RHACS scans the candidate. Cosign signs the exact image digest and attaches the build SBOM to that digest.”
+
+> “Our opening image fails for two independent reasons. It contains the affected OpenClaw component version, and nobody approved this image digest with our Cosign key. The source commit is signed, but the container image is not. These are different trust decisions. We mark both custom policies as Critical because they stop this release, but this is not a generic rule that fails every Critical vulnerability.”
+
+> “After the image gates pass, we prepare the SBOM publication bundle for Trusted Profile Analyzer. TPA is not installed in this lab, so we do not pretend to upload it. Then RHACS checks the Kubernetes deployment manifest. This order matters: the SBOM describes the approved image; the next check evaluates how that image will run.”
+
+> “I prepared both decisions before this session. One pipeline run shows why v1 was rejected. The other shows why v2 earned approval. This lets us discuss the evidence without waiting for a build.”
+
+> “RHACS keeps `ai-email-demo` as the user workload. The pipeline, Dev Spaces, Gitea, sender, and receiver namespaces are custom platform components, so supporting machinery does not obscure the workload risk.”
+
+### Live delivery script
+
+> “We start with a clean but realistic problem. The affected application is already running. RHACS policy was introduced afterward, so the existing workload is visible as risk and the next candidate is rejected. This is how teams often discover inherited supply-chain risk in a real environment.”
+
+Open the failed v1 PipelineRun and its `rhacs-image-check` Task, then place the successful v2 run beside it.
+
+> “The decision is specific. RHACS found the component named OpenClaw at version 2026.2.13. Our policy requires the maintained baseline. The pipeline stopped before signing, publication, or promotion.”
+
+Move to Dev Spaces and compare `versions/v1/package.json` with `versions/v2/package.json`.
+
+> “Red Hat Dependency Analytics brings dependency context close to the source. Here are the two exact records used for the prepared runs: affected v1 and maintained v2.”
+
+Do not rebuild or push during the presentation. Open the successful v2 graph and follow the prepared evidence.
+
+Follow the Pipeline graph without opening every log. Pause at these Tasks:
+
+1. `verify-commit`: “The source revision has an approved developer signature.”
+2. `build`: “OpenShift built a commit-specific candidate in its internal registry.”
+3. `sbom`: “Syft inventoried the immutable final image, not only the source folder.”
+4. `sign`: “Cosign signed that digest and attached the same CycloneDX SBOM as an attestation.”
+5. `rhacs-image-check`: “The maintained component and approved-signature policies both pass.”
+6. `prepare-tpa-publication`: “This bundle is where TPA would ingest the SBOM and digest metadata. TPA is not installed here, so the pipeline says that clearly.”
+7. `rhacs-deployment-check`: “The image passed; now RHACS evaluates the separate Kubernetes object.”
+8. `release-evidence`: “This is the compact audience view. Detailed `roxctl` logs still exist behind it.”
+9. `promote`: “This step was deliberately held. I will submit the exact digest separately so we can watch admission.”
+
+Pause on the evidence card:
+
+> “The release was not trusted because one scanner returned green. It earned promotion through connected evidence: signed source, repeatable build, final-image inventory, signature, image policy, deployment policy, and an immutable digest.”
+
+Run `make promote-v2`, pause on the RHACS admission message, and then open OpenClaw.
+
+> “Nothing is rebuilding now. RHACS is deciding whether this already-approved immutable digest may replace the running v1 workload. It is accepted, and v2 becomes our runtime subject.”
+
 ## Rehearsal status
 
-The full live path was last rehearsed on 31 August 2026. Use `reports/rehearsal-2026-08-31/REPORT.md` as the evidence index. Every primary presentation beat passed: image and manifest checks, signed v2 verification, live privileged-spec detection, normal mail, three repeated influenced runs, RHACS process and network alerts, and egress containment. File Activity Monitoring is the exception: the CRC worker is ARM64 and RHACS 4.11 reports that Technology Preview signal only on x86 workers. Explain that boundary; do not wait for a file alert during this presentation.
+The complete Dev Spaces-to-promotion delivery path was rehearsed again on 2 September 2026. A signed developer push triggered Gitea, all thirteen Pipeline Tasks succeeded, the final-image CycloneDX SBOM and Cosign attestation were created, both RHACS image gates passed, the TPA bundle was marked demonstrative, the deployment check passed, and the exact digest was promoted. Use `reports/rehearsal-2026-09-02/PIPELINE-REPORT.md` for that evidence. The runtime act was last fully rehearsed on 31 August 2026; use `reports/rehearsal-2026-08-31/REPORT.md` for that evidence. File Activity Monitoring remains the exception: the CRC worker is ARM64 and RHACS 4.11 reports that Technology Preview signal only on x86 workers. Explain that boundary; do not wait for a file alert during this presentation.
 
 ## How to use these notes
 
@@ -36,7 +84,7 @@ Immediately before the audience arrives, prepare the clean base state:
 make demo-reset
 ```
 
-This recreates all application Deployments and rebuilds their clean RHACS policies and baselines without reinstalling RHACS or rebuilding existing images. It also applies the configured mailbox login, resets previous conversations, clears receiver evidence, and finishes with zero active alerts in the demo namespaces. It does not call the model or send the injected message. Reapprove the browser only if requested. From that point forward, ask every chatbot question manually in the browser and use only the sender and containment scripts as live triggers.
+This rebuilds the opening application, recreates its RHACS baselines without reinstalling RHACS, and removes old pipeline history. It then stages exactly two runs: rejected v1 and approved-but-not-deployed v2. Deployment admission is enabled, the mailbox and conversations are reset, and receiver evidence is cleared. During the presentation, `make promote-v2` is the only release action. From that point forward, ask every chatbot question manually in the browser and use only the sender and containment commands as live triggers.
 
 The chatbot is the audience view: user prompts and final Markdown answers only. Do not expose thinking, activity cards, command output, or workflow-note narration. The image disables those surfaces. Move to the receiver console and RHACS when you are ready to reveal what happened underneath.
 
@@ -179,9 +227,9 @@ Show that supply-chain security begins before the container exists.
 
 ### Technical depth
 
-> “For source-time analysis, the repository keeps authoritative manifests under `services/openclaw/v1` and `services/openclaw/v2`. v1 contains real `openclaw@2026.2.13`, affected by a Critical host-environment supply-chain redirection issue. v2 contains maintained `openclaw@2026.7.1`. RHACS evaluates the component name and version directly, while the advisory explains why the organizational baseline rejects it.”
+> “For source-time analysis, this pipeline has one candidate file: `versions/v1/package.json`. It begins with `openclaw@2026.2.13`. I update that same dependency to `2026.8.2`; I do not switch to a different application or a different pipeline. RHACS then checks the component and version that actually entered the rebuilt image.”
 
-> “In this prepared scan, RHACS reports 16 Critical findings in v1 and attributes 15 of them directly to the OpenClaw component. The maintained v2 digest currently reports zero Critical findings. Those are current scan results, not numbers baked into the slide.”
+> “The opening image contains real findings from the affected OpenClaw dependency tree. The remediated image has a different digest and a different inventory. I will show the live RHACS result because vulnerability counts change with the artifact and the intelligence database; the lesson is the traceable component and release decision, not a number baked into a slide.”
 
 Current capabilities worth mentioning include workspace/package analysis, CycloneDX SBOM generation, and Dockerfile analysis. Avoid promising identical language/ecosystem behavior without verifying the installed extension version.
 
@@ -351,7 +399,7 @@ Introduce RHACS through lifecycle questions rather than a feature inventory.
 
 ### Demo mapping
 
-> “Our v1 image is the deterministic failure. Our bad manifest is deliberately privileged. The v2 path is the real AI workload. At runtime, we will observe two child processes and a network flow that did not exist in the normal baseline.”
+> “Our opening candidate is the deterministic dependency failure. The same release stream becomes the maintained candidate after the developer change. Our bad manifest is deliberately privileged and never deployed. At runtime, we will observe child processes and a network flow that did not exist in the normal baseline.”
 
 Use the CLI only for this proof sequence:
 
@@ -380,7 +428,7 @@ Say after the checks:
 - SecOps: investigate runtime context.
 - Workload owner: trace the finding back to deployment and image.
 
-For the base-image checkpoint, show **Platform Configuration → Base Images**, open `openclaw:v2`, and filter findings by layer type. Do not turn this into organizational blame: layer origin determines the first remediation owner and the required handoff.
+For the base-image checkpoint, show **Platform Configuration → Base Images**, open the promoted `openclaw:v1` digest, and filter findings by layer type. Do not turn this into organizational blame: layer origin determines the first remediation owner and the required handoff.
 
 ### Transition
 
@@ -447,7 +495,7 @@ Show prepared views rather than typing commands:
 2. SBOM/RHTPA composition view.
 3. RHACS v1 image finding.
 4. Bad privileged manifest rejection.
-5. v2 image and clean manifest.
+5. Promoted maintained digest and clean manifest.
 6. Signature/admission evidence.
 
 ### Key sentence

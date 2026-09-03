@@ -38,36 +38,36 @@ CLI="$cli" "$repo_dir/scripts/restore-permissive-egress.sh" >/dev/null
 echo "[4/8] Removing any sender Job from an earlier run..."
 "$cli" -n external-sender delete job external-html-sender --ignore-not-found >/dev/null
 
-echo "[5/8] Resetting the agent's conversation sessions..."
-"$cli" -n ai-email-demo exec -c openclaw deployment/openclaw -- \
-  env OPENCLAW_CONFIG_PATH=/home/node/.openclaw/reset-config.json \
-  node openclaw.mjs reset --scope config+creds+sessions --yes --non-interactive \
-  >/dev/null
-# The generated provider cache survives OpenClaw's reset command. Remove only
-# that derived file so a changed SecretRef/provider configuration is rebuilt.
-"$cli" -n ai-email-demo exec -c openclaw deployment/openclaw -- \
-  rm -f /home/node/.openclaw/agents/main/agent/models.json
-"$cli" -n ai-email-demo rollout restart deployment/openclaw >/dev/null
+echo "[5/8] Removing conversations while preserving the paired demo browser..."
+sessions_json=$("$cli" -n ai-email-demo exec -c openclaw deployment/openclaw -- \
+  node openclaw.mjs sessions list --all-agents --limit all --json)
+session_keys=$(printf '%s' "$sessions_json" | python3 -c \
+  'import json,sys; print("\n".join(s["key"] for s in json.load(sys.stdin).get("sessions", []) if s.get("key")))')
+if [ -n "$session_keys" ]; then
+  printf '%s\n' "$session_keys" | while IFS= read -r session_key; do
+    "$cli" -n ai-email-demo exec -c openclaw deployment/openclaw -- \
+      node openclaw.mjs sessions delete "$session_key" --yes --json >/dev/null
+  done
+fi
 
 echo "[6/8] Seeding only the two normal emails..."
 mail_host=$("$cli" -n ai-email-demo get route mail-api -o jsonpath='{.spec.host}')
 curl -kfsS -X POST "https://${mail_host}/seed" >/dev/null
 
 echo "[7/8] Clearing previous receiver evidence..."
-"$cli" -n demo-webhook exec deployment/demo-webhook -- python -c \
-  "import urllib.request; print(urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8080/requests', method='DELETE')).read().decode())" \
-  >/dev/null
+receiver_host=$("$cli" -n demo-webhook get route demo-webhook -o jsonpath='{.spec.host}')
+curl -kfsS -X DELETE "https://${receiver_host}/requests" >/dev/null
 
 echo "[8/8] Verifying the presentation baseline..."
 "$cli" -n ai-email-demo wait --for=condition=Available \
-  deployment/openclaw deployment/mail-server deployment/mail-api deployment/webmail \
+  deployment/mail-server deployment/mail-api deployment/webmail \
   --timeout=60s >/dev/null
 "$cli" -n demo-webhook wait --for=condition=Available deployment/demo-webhook \
   --timeout=60s >/dev/null
 sessions_json=$("$cli" -n ai-email-demo exec -c openclaw deployment/openclaw -- \
   node openclaw.mjs sessions list --all-agents --limit all --json)
 session_count=$(printf '%s' "$sessions_json" | python3 -c \
-  'import json,sys; print(json.load(sys.stdin)["totalCount"])')
+  'import json,sys; data=json.load(sys.stdin); print(data.get("totalCount", data.get("count", len(data.get("sessions", [])))))')
 [ "$session_count" -eq 0 ] || {
   echo "session reset failed: $session_count conversation(s) remain" >&2
   exit 1
@@ -88,7 +88,7 @@ CLI="$cli" "$repo_dir/scripts/show-demo-credentials.sh"
 echo
 echo "Present manually:"
 echo "  1. Open Roundcube and show the two normal emails."
-echo "  2. Paste the gateway token and connect the chatbot; no pairing approval is required."
+echo "  2. Paste the gateway token and connect. The persistent demo browser remains paired."
 echo "  3. Ask the chatbot to summarize today's email."
 echo "  4. When ready, run: ./scripts/send-external-html-email.sh"
 echo "  5. Show the new HTML email, then ask the chatbot again."

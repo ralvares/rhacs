@@ -1,5 +1,30 @@
-# OpenClaw v1 dependency view
+# OpenClaw release candidate
 
-This folder is the clean developer-workstation view for the scan-only v1 candidate. `package.json` pins the real affected `openclaw@2026.2.13` package used by the v1 image. That release falls inside the affected range for the Critical GHSA-j7p2-qcwm-94v4 supply-chain redirection issue, fixed in `2026.3.22`. `requirements.txt` remains a separate Python dependency-analysis example; it is not part of the OpenClaw image.
+This is the only dependency candidate used by the demonstration pipeline.
 
-The v1 image is built and scanned but never started or deployed.
+- Opening version: `openclaw@2026.2.13`
+- Remediation target: `openclaw@2026.8.2`
+
+'''
+{
+  "name": "rhacs-ai-demo-agent-runtime",
+  "private": true,
+  "version": "1.0.1",
+  "dependencies": {
+    "openclaw": "2026.8.2"
+  },
+  "overrides": {
+    "openclaw": {
+      "p-limit": "7.3.1"
+    }
+  }
+}
+'''
+
+During the presentation, update `package.json` and `package-lock.json` in this
+directory from the opening version to the remediation target. Commit and push
+that in-place change. The pipeline builds this same v1 candidate, generates an
+SBOM from the resulting image, signs its digest, applies the RHACS gates, and
+promotes the approved digest as `openclaw:v1` and `openclaw:latest`.
+
+There is no v2 source or v2 pipeline path.

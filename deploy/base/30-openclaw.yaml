@@ -16,6 +16,9 @@ metadata:
   labels: {app: openclaw, runtime: openclaw}
 spec:
   replicas: 1
+  # OpenClaw owns one state directory and takes an exclusive gateway lock.
+  # Never overlap old and new replicas during an image promotion.
+  strategy: {type: Recreate}
   selector: {matchLabels: {app: openclaw}}
   template:
     metadata:
@@ -29,9 +32,9 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: prepare-openclaw-home
-          image: IMAGE_REGISTRY/ai-email-demo/openclaw:latest
+          image: IMAGE_REGISTRY/ai-email-demo/openclaw:v1
           imagePullPolicy: Always
-          command: ["sh", "-c", "mkdir -p /state/workspace && cp -R /opt/openclaw-workspace/. /state/workspace/"]
+          command: ["sh", "-c", "mkdir -p /state/workspace; if [ -d /opt/openclaw-workspace ]; then cp -R /opt/openclaw-workspace/. /state/workspace/; fi"]
           volumeMounts:
             - {name: state, mountPath: /state}
           securityContext:
@@ -39,16 +42,53 @@ spec:
             capabilities: {drop: ["ALL"]}
             runAsNonRoot: true
             seccompProfile: {type: RuntimeDefault}
-      containers:
-        - name: openclaw
-          image: IMAGE_REGISTRY/ai-email-demo/openclaw:latest
+        - name: prepare-openclaw-state
+          image: IMAGE_REGISTRY/ai-email-demo/openclaw:v1
           imagePullPolicy: Always
-          command: ["node", "openclaw.mjs", "gateway", "--bind", "lan", "--port", "8080"]
+          # Keep OpenClaw's SQLite identity state. Conversation cleanup uses the
+          # supported sessions API, so a rollout never forgets the demo browser.
+          command: ["sh", "-c", "rm -f /state/exec-approvals.json /state/workspace/openclaw-workspace-state.json /state/workspace.attested*; rm -rf /state/workspace/.openclaw /state/workspace-attestations /state/logs/stability; cp /defaults/openclaw.json /state/openclaw.json; chmod 0600 /state/openclaw.json"]
+          volumeMounts:
+            - {name: state, mountPath: /state}
+            - {name: config, mountPath: /defaults, readOnly: true}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}
+        - name: configure-exec-approvals
+          image: IMAGE_REGISTRY/ai-email-demo/openclaw:v1
+          imagePullPolicy: Always
+          command: ["sh", "-c", "node /opt/openclaw/openclaw.mjs approvals set --stdin < /defaults/exec-approvals.json"]
           env:
-            - {name: HOME, value: /home/node}
+            - {name: HOME, value: /tmp}
             - {name: OPENCLAW_HOME, value: /home/node}
             - {name: OPENCLAW_STATE_DIR, value: /home/node/.openclaw}
-            - {name: OPENCLAW_CONFIG_PATH, value: /etc/openclaw/openclaw.json}
+            - {name: OPENCLAW_CONFIG_PATH, value: /home/node/.openclaw/openclaw.json}
+            - name: INFERENCE_API_TOKEN
+              valueFrom:
+                secretKeyRef: {name: inference-credentials, key: api-token}
+            - name: OPENCLAW_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef: {name: openclaw-credentials, key: gateway-token}
+          volumeMounts:
+            - {name: config, mountPath: /defaults, readOnly: true}
+            - {name: state, mountPath: /home/node/.openclaw}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: openclaw
+          image: IMAGE_REGISTRY/ai-email-demo/openclaw:v1
+          imagePullPolicy: Always
+          command: ["node", "/opt/openclaw/openclaw.mjs", "gateway", "--bind", "lan", "--port", "8080"]
+          env:
+            - {name: HOME, value: /tmp}
+            - {name: OPENCLAW_HOME, value: /home/node}
+            - {name: OPENCLAW_STATE_DIR, value: /home/node/.openclaw}
+            - {name: OPENCLAW_CONFIG_PATH, value: /home/node/.openclaw/openclaw.json}
             - {name: OPENCLAW_WORKSPACE_DIR, value: /home/node/.openclaw/workspace}
             - {name: OPENCLAW_DISABLE_BONJOUR, value: "1"}
             - name: INFERENCE_API_TOKEN
@@ -76,12 +116,13 @@ spec:
                 secretKeyRef: {name: openclaw-credentials, key: gateway-token}
           ports: [{name: http, containerPort: 8080}]
           volumeMounts:
-            - {name: config, mountPath: /etc/openclaw/openclaw.json, subPath: openclaw.json, readOnly: true}
             - {name: state, mountPath: /home/node/.openclaw}
             - {name: runtime-context, mountPath: /home/node/.openclaw/workspace/.env, subPath: runtime-context, readOnly: true}
-          startupProbe: {httpGet: {path: /startupz, port: http}, failureThreshold: 30, periodSeconds: 5}
-          readinessProbe: {httpGet: {path: /readyz, port: http}, periodSeconds: 5}
-          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 30, periodSeconds: 15}
+          # OpenClaw 2026.8 validates forwarded-client attribution before HTTP
+          # auth. TCP probes avoid making the kubelet look like the Route proxy.
+          startupProbe: {tcpSocket: {port: http}, failureThreshold: 30, periodSeconds: 5}
+          readinessProbe: {tcpSocket: {port: http}, periodSeconds: 5}
+          livenessProbe: {tcpSocket: {port: http}, initialDelaySeconds: 30, periodSeconds: 15}
           resources:
             requests: {cpu: 100m, memory: 512Mi}
             limits: {cpu: "1", memory: 2Gi}

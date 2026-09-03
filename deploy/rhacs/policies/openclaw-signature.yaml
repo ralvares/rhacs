@@ -1,0 +1,39 @@
+apiVersion: config.stackrox.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: demo-unsigned-openclaw-release-blocked
+  namespace: stackrox
+spec:
+  policyName: Demo - Unsigned OpenClaw release blocked
+  description: The OpenClaw candidate is not verified by the approved demonstration release key.
+  rationale: Producer identity and release provenance must be verified against the immutable image digest before promotion.
+  remediation: Sign the candidate digest with the approved key and submit the immutable digest again.
+  categories: [Supply Chain Security]
+  lifecycleStages: [BUILD, DEPLOY]
+  enforcementActions:
+    - FAIL_BUILD_ENFORCEMENT
+    - SCALE_TO_ZERO_ENFORCEMENT
+    - UNSATISFIABLE_NODE_CONSTRAINT_ENFORCEMENT
+    - FAIL_DEPLOYMENT_CREATE_ENFORCEMENT
+    - FAIL_DEPLOYMENT_UPDATE_ENFORCEMENT
+  eventSource: NOT_APPLICABLE
+  severity: CRITICAL_SEVERITY
+  disabled: false
+  scope:
+    - cluster: production
+      namespace: ai-email-demo
+      label: {key: app, value: openclaw}
+  policySections:
+    - sectionName: OpenClaw images require the demo release key
+      policyGroups:
+        - fieldName: Image Remote
+          booleanOperator: OR
+          values:
+            - value: ai-email-demo/openclaw
+        - fieldName: Image Signature Verified By
+          booleanOperator: OR
+          values:
+            - value: SIGNATURE_INTEGRATION_ID
+  criteriaLocked: false
+  mitreVectorsLocked: false
+  isDefault: false

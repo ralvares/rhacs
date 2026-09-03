@@ -9,8 +9,9 @@ integration_name="RHACS AI Demo Cosign Key"
 policy_name="Demo - Unsigned OpenClaw release blocked"
 vulnerable_policy_name="Demo - Critical OpenClaw release blocked"
 affected_component_pattern='openclaw=2026\.2\.13([-._][a-zA-Z0-9]+)*$'
+enforcement_description="build failure, Sensor containment, and admission rejection on deployment create/update"
 public_key="$repo_dir/.work/cosign/rhacs-demo.pub"
-[ -s "$public_key" ] || { echo "Missing $public_key; run sign-release-v2.sh first" >&2; exit 1; }
+[ -s "$public_key" ] || { echo "Missing $public_key; run make sign first" >&2; exit 1; }
 
 central_api() {
   local method=$1 path=$2 body=${3:-}
@@ -36,85 +37,37 @@ else
 fi
 [ -n "$integration_id" ] && [ "$integration_id" != null ] || { echo "RHACS signature integration failed" >&2; exit 1; }
 
-cluster_id=$(central_api GET /v1/clusters | jq -r '.clusters[]? | select(.name=="production") | .id' | head -1)
-[ -n "$cluster_id" ] || { echo "RHACS cluster 'production' not found" >&2; exit 1; }
-policy_body=$(jq -nc --arg cid "$cluster_id" --arg iid "$integration_id" --arg name "$policy_name" '{
-  name:$name,
-  description:"The OpenClaw artifact is not verified with the approved Cosign release key, so its producer and release path cannot be established.",
-  rationale:"Software provenance must be verified against the immutable image digest before an OpenClaw release can be promoted.",
-  remediation:"Build the approved OpenClaw release, sign its immutable digest with the authorized release key, and verify the signature before promotion.",
-  disabled:false,
-  categories:["Supply Chain Security"],
-  lifecycleStages:["BUILD","DEPLOY"],
-  eventSource:"NOT_APPLICABLE",
-  exclusions:[],
-  scope:[{cluster:$cid,namespace:"ai-email-demo",label:{key:"app",value:"openclaw"}}],
-  severity:"HIGH_SEVERITY",
-  enforcementActions:["FAIL_BUILD_ENFORCEMENT","FAIL_DEPLOYMENT_CREATE_ENFORCEMENT"],
-  notifiers:[],
-  policyVersion:"1.1",
-  policySections:[{sectionName:"OpenClaw images require the demo release key",policyGroups:[
-    {fieldName:"Image Remote",booleanOperator:"OR",negate:false,values:[{value:"ai-email-demo/openclaw"}]},
-    {fieldName:"Image Signature Verified By",booleanOperator:"OR",negate:false,values:[{value:$iid}]}
-  ]}],
-  mitreAttackVectors:[{tactic:"TA0001",techniques:["T1195.002"]}],
-  criteriaLocked:false,
-  mitreVectorsLocked:false,
-  isDefault:false,
-  source:"IMPERATIVE"
-}')
-policy_id=$(central_api GET /v1/policies | jq -r --arg name "$policy_name" \
-  '.policies[]? | select(.name==$name) | .id' | head -1)
-if [ -n "$policy_id" ]; then
-  policy_body=$(jq -c --arg id "$policy_id" '. + {id:$id}' <<<"$policy_body")
-  central_api PUT "/v1/policies/$policy_id" "$policy_body" >/dev/null
-else
-  policy_id=$(central_api POST /v1/policies "$policy_body" | jq -r '.id')
-fi
-[ -n "$policy_id" ] && [ "$policy_id" != null ] || { echo "RHACS signature policy failed" >&2; exit 1; }
+for managed_policy in "$policy_name" "$vulnerable_policy_name"; do
+  managed_resource=$(oc -n stackrox get securitypolicy -o json 2>/dev/null | jq -r \
+    --arg name "$managed_policy" '.items[]? | select(.spec.policyName == $name) | .metadata.name' | head -1)
+  if [ -z "$managed_resource" ]; then
+    legacy_id=$(central_api GET /v1/policies | jq -r --arg name "$managed_policy" \
+      '.policies[]? | select(.name==$name) | .id' | head -1)
+    [ -z "$legacy_id" ] || central_api DELETE "/v1/policies/$legacy_id" >/dev/null
+  fi
+done
+
+oc apply -f "$repo_dir/deploy/rhacs/policies/openclaw-version.yaml" >/dev/null
+sed -e "s/SIGNATURE_INTEGRATION_ID/${integration_id}/g" \
+  "$repo_dir/deploy/rhacs/policies/openclaw-signature.yaml" | oc apply -f - >/dev/null
+
+for _ in $(seq 1 60); do
+  policies=$(central_api GET /v1/policies)
+  policy_id=$(jq -r --arg name "$policy_name" '.policies[]? | select(.name==$name and .disabled==false) | .id' <<<"$policies" | head -1)
+  vulnerable_policy_id=$(jq -r --arg name "$vulnerable_policy_name" '.policies[]? | select(.name==$name and .disabled==false) | .id' <<<"$policies" | head -1)
+  [ -n "$policy_id" ] && [ -n "$vulnerable_policy_id" ] && break
+  sleep 2
+done
+[ -n "${policy_id:-}" ] && [ -n "${vulnerable_policy_id:-}" ] || {
+  echo "RHACS SecurityPolicy resources did not become active before timeout" >&2
+  exit 1
+}
 
 echo "RHACS signature integration: $integration_id"
-echo "RHACS signature policy: $policy_id"
+echo "RHACS signature policy: $policy_id (SecurityPolicy/demo-unsigned-openclaw-release-blocked)"
+echo "RHACS vulnerable-version policy: $vulnerable_policy_id (SecurityPolicy/demo-critical-openclaw-release-blocked)"
 echo "Scope: production / ai-email-demo / deployment label app=openclaw"
-echo "Enforcement: build check and deployment-create admission"
-
-# Match the historical npm component and the complete affected January release
-# range directly. This keeps the organizational version baseline independent of
-# a vulnerability identifier or vulnerability-database timing.
-vulnerable_policy_body=$(jq -nc --arg cid "$cluster_id" --arg name "$vulnerable_policy_name" --arg pattern "$affected_component_pattern" '{
-  name:$name,
-  description:"This image contains OpenClaw 2026.2.13, a release affected by Critical security issues. The selected supply-chain redirection issue is fixed in 2026.3.22.",
-  rationale:"Incomplete host environment sanitization could redirect package resolution or runtime bootstrap to attacker-controlled infrastructure. This policy demonstrates deterministic component-version control without reproducing the flaw.",
-  remediation:"Rebuild the workload with OpenClaw 2026.3.22 or later, scan the new digest, sign it, and promote only the signed digest.",
-  disabled:false,
-  categories:["Vulnerability Management","Supply Chain Security"],
-  lifecycleStages:["BUILD","DEPLOY"],
-  eventSource:"NOT_APPLICABLE",
-  exclusions:[],
-  scope:[{cluster:$cid,namespace:"ai-email-demo",label:{key:"app",value:"openclaw"}}],
-  severity:"CRITICAL_SEVERITY",
-  enforcementActions:["FAIL_BUILD_ENFORCEMENT","FAIL_DEPLOYMENT_CREATE_ENFORCEMENT"],
-  notifiers:[],
-  policyVersion:"1.1",
-  policySections:[{sectionName:"Affected OpenClaw runtime component",policyGroups:[
-    {fieldName:"Image Component",booleanOperator:"OR",negate:false,values:[{value:$pattern}]}
-  ]}],
-  mitreAttackVectors:[{tactic:"TA0001",techniques:["T1195.001"]}],
-  criteriaLocked:false,
-  mitreVectorsLocked:false,
-  isDefault:false,
-  source:"IMPERATIVE"
-}')
-vulnerable_policy_id=$(central_api GET /v1/policies | jq -r --arg name "$vulnerable_policy_name" \
-  '.policies[]? | select(.name==$name) | .id' | head -1)
-if [ -n "$vulnerable_policy_id" ]; then
-  vulnerable_policy_body=$(jq -c --arg id "$vulnerable_policy_id" '. + {id:$id}' <<<"$vulnerable_policy_body")
-  central_api PUT "/v1/policies/$vulnerable_policy_id" "$vulnerable_policy_body" >/dev/null
-else
-  vulnerable_policy_id=$(central_api POST /v1/policies "$vulnerable_policy_body" | jq -r '.id')
-fi
-[ -n "$vulnerable_policy_id" ] && [ "$vulnerable_policy_id" != null ] || { echo "RHACS vulnerable-version policy failed" >&2; exit 1; }
-echo "RHACS vulnerable-version policy: $vulnerable_policy_id"
+echo "Enforcement: $enforcement_description"
 
 # Remove superseded names from earlier iterations so the RHACS policy list
 # presents one unambiguous OpenClaw version gate and one signature gate.

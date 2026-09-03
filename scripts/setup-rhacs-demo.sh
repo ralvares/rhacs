@@ -12,8 +12,8 @@ usage: ./scripts/setup-rhacs-demo.sh [--install|--skip-install] [--skip-demo-res
 
 Installs RHACS when needed, configures access to the OpenShift internal image
 registry, enables the runtime deviation policies, resets the application to its
-clean state, signs the immutable v2 image, configures the scoped RHACS
-signature policy, and locks the demo process/network baselines.
+clean state, leaves the opening v1 image deliberately unsigned, configures the
+scoped RHACS signature policy, and locks the demo process/network baselines.
 EOF
 }
 
@@ -122,8 +122,21 @@ echo "Registering the workload's approved UBI base images..."
 ROX_ENDPOINT="$ROX_ENDPOINT" ROX_API_TOKEN="$ROX_API_TOKEN" \
     "$repo_dir/scripts/rhacs/configure-base-images.sh"
 
-echo "Signing the immutable v2 image inside CRC..."
-"$repo_dir/scripts/sign-release-v2.sh"
+echo "Classifying the demo delivery and observability namespaces as platform components..."
+ROX_ENDPOINT="$ROX_ENDPOINT" ROX_API_TOKEN="$ROX_API_TOKEN" \
+    "$repo_dir/scripts/rhacs/configure-platform-components.sh"
+
+echo "Preparing the release trust key while leaving the opening v1 image unsigned..."
+"$repo_dir/scripts/generate-signing-key.sh" >/dev/null
+v1_digest=$(oc -n ai-email-demo get istag openclaw:v1 -o jsonpath='{.image.metadata.name}')
+[ -n "$v1_digest" ] || { echo "openclaw:v1 has no image digest" >&2; exit 1; }
+v1_signature_tag="openclaw:sha256-${v1_digest#sha256:}.sig"
+oc -n ai-email-demo delete istag "$v1_signature_tag" --ignore-not-found >/dev/null
+if oc -n ai-email-demo get istag "$v1_signature_tag" >/dev/null 2>&1; then
+    echo "Opening v1 signature still exists: $v1_signature_tag" >&2
+    exit 1
+fi
+echo "Verified unsigned opening digest: $v1_digest"
 
 echo "Configuring RHACS affected-component and signature verification gates..."
 ROX_ENDPOINT="$ROX_ENDPOINT" ROX_API_TOKEN="$ROX_API_TOKEN" \
@@ -186,27 +199,25 @@ for target in "${targets[@]}"; do
     rhacs-pb-lock "$target"
 done
 
-# Declare the stable startup/runtime processes for every presentation workload.
-# This removes the timing dependency between pod readiness, Sensor ingestion,
-# and locking on a fast single-node CRC. These are expected application paths,
-# not attack tooling; curl remains deliberately absent.
-rhacs-pb-add ai-email-demo/mail-server greenmail \
+# Replace every baseline from a small declarative contract. Repeated setup runs
+# must never preserve or accumulate processes observed during earlier demos.
+rhacs-pb-replace ai-email-demo/mail-server greenmail \
     /home/greenmail/run_greenmail.sh /usr/bin/java
-rhacs-pb-add ai-email-demo/mail-api mail-api \
+rhacs-pb-replace ai-email-demo/mail-api mail-api \
     /usr/bin/container-entrypoint /usr/bin/uname /opt/app-root/bin/uvicorn
-rhacs-pb-add ai-email-demo/webmail roundcube \
+rhacs-pb-replace ai-email-demo/webmail roundcube \
     /docker-entrypoint.sh /usr/bin/base64 /usr/bin/chown /usr/bin/dirname \
     /usr/bin/grep /usr/bin/head /usr/bin/ls /usr/bin/mkdir /usr/bin/rm \
-    /usr/bin/sed /usr/bin/tar /usr/local/bin/apache2-foreground \
+    /usr/bin/sed /usr/bin/tar \
+    /usr/local/bin/apache2-foreground \
     /usr/local/bin/php /usr/sbin/apache2 /var/www/html/bin/initdb.sh \
     chown mkdir touch
 for sink_target in ai-email-demo/unauthorized-demo-service ai-email-demo/approved-internal-service; do
-    rhacs-pb-add "$sink_target" sink \
+    rhacs-pb-replace "$sink_target" sink \
         /usr/bin/container-entrypoint /usr/bin/uname /opt/app-root/bin/uvicorn
 done
-rhacs-pb-add demo-webhook/demo-webhook webhook \
-    /usr/bin/container-entrypoint /usr/bin/uname /opt/app-root/bin/uvicorn \
-    /opt/app-root/bin/python /usr/bin/sh
+rhacs-pb-replace demo-webhook/demo-webhook webhook \
+    /usr/bin/container-entrypoint /usr/bin/uname /opt/app-root/bin/uvicorn
 
 # Preserve RHACS's learned clean-run history, then add only stable processes
 # needed before every rehearsal. curl is deliberately excluded, even if an
@@ -214,14 +225,23 @@ rhacs-pb-add demo-webhook/demo-webhook webhook \
 # between sensor-learned, explicitly declared, and removed entries visible.
 echo "Agent process history before reconciliation:"
 rhacs-pb-history ai-email-demo/openclaw
-rhacs-pb-add ai-email-demo/openclaw openclaw \
-    /usr/local/bin/node /usr/bin/node /usr/bin/node-22 /usr/bin/python3 \
-    /bin/sh /usr/bin/sh /usr/bin/cat /usr/bin/find /usr/bin/readlink \
-    /usr/bin/rm /usr/bin/sed /usr/bin/id /usr/bin/hostnamectl /usr/bin/uname \
-    /usr/libexec/grepconf.sh grepconf.sh /usr/bin/grep /usr/bin/xargs \
-    /usr/bin/tr /usr/bin/locale /usr/bin/tclsh /bin/ps \
-    /bin/basename /usr/bin/basename
-rhacs-pb-remove ai-email-demo/openclaw openclaw /usr/bin/curl /usr/local/bin/curl
+# Broad presentation baseline: tolerate normal runtime discovery, filesystem,
+# formatting, and housekeeping helpers. Deliberately omit shells and dedicated
+# transfer/remote-access tools (curl, wget, nc/ncat/netcat, socat, ssh/scp/sftp,
+# telnet, ftp, openssl). node, python3, and git are application requirements;
+# their destinations are constrained separately by the network baseline.
+rhacs-pb-replace ai-email-demo/openclaw openclaw \
+    /bin/basename /bin/ps \
+    /usr/bin/basename /usr/bin/cat /usr/bin/chmod /usr/bin/cp /usr/bin/cut \
+    /usr/bin/date /usr/bin/dirname /usr/bin/find /usr/bin/git /usr/bin/grep \
+    /usr/bin/head /usr/bin/hostname /usr/bin/hostnamectl /usr/bin/id \
+    /usr/bin/locale /usr/bin/ls /usr/bin/mkdir /usr/bin/node /usr/bin/node-22 \
+    /usr/bin/printf /usr/bin/pwd /usr/bin/python3 /usr/bin/readlink \
+    /usr/bin/realpath /usr/bin/rm /usr/bin/sed /usr/bin/sleep /usr/bin/sort \
+    /usr/bin/stat /usr/bin/systemctl /usr/bin/tail /usr/bin/touch /usr/bin/tr \
+    /usr/bin/uname /usr/bin/wc /usr/libexec/grepconf.sh /usr/local/bin/node \
+    /usr/sbin/ip \
+    grepconf.sh node-22
 rhacs-pb-lock ai-email-demo/openclaw
 echo "Agent process baseline after reconciliation:"
 rhacs-pb-history ai-email-demo/openclaw
@@ -333,7 +353,7 @@ echo "RHACS demo setup is complete."
 echo "Central: https://${central_host}"
 echo "Registry: connected and scoped to ai-email-demo"
 echo "Policies: Unauthorized Process Execution and Unauthorized Network Flow enabled"
-echo "Signature: registry-backed v2 digest verified; scoped RHACS build/deploy policy enabled"
+echo "Signature: opening v1 is unsigned; scoped RHACS build/deploy policy enabled"
 echo "Policy: path/operation-only runtime artifact detection enabled for ai-email-demo"
 echo "File activity: enabled in SecuredCluster (RHACS 4.11 Technology Preview)"
 echo "Agent: router ingress, DNS, IMAP, and CRC-host model traffic baselined"

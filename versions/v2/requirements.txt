@@ -1,0 +1,6 @@
+# Deliberately separate Python dependency-analysis example. These packages are
+# not installed in the OpenClaw runtime image.
+requests==2.32.5
+urllib3==2.5.0
+Jinja2==3.1.6
+setuptools==80.9.0

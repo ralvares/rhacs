@@ -11,8 +11,8 @@ command -v oc >/dev/null 2>&1 || { echo "oc is required" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
 "$repo_dir/scripts/generate-signing-key.sh" >/dev/null
 
-digest=$(oc -n "$namespace" get istag openclaw:v2 -o jsonpath='{.image.metadata.name}')
-[ -n "$digest" ] || { echo "openclaw:v2 has no image digest; run setup first" >&2; exit 2; }
+digest=$(oc -n "$namespace" get istag openclaw:v1 -o jsonpath='{.image.metadata.name}')
+[ -n "$digest" ] || { echo "openclaw:v1 has no image digest; run setup first" >&2; exit 2; }
 image="$registry_host/$namespace/openclaw@$digest"
 
 # Cosign runs inside CRC. Its short-lived builder token is valid only for this
@@ -30,14 +30,14 @@ oc -n "$namespace" create secret generic cosign-signing-key \
   --from-file=password="$work_dir/password" \
   --dry-run=client -o yaml | oc apply -f - >/dev/null
 
-oc -n "$namespace" delete job cosign-sign-v2 --ignore-not-found >/dev/null
+oc -n "$namespace" delete job cosign-sign-release --ignore-not-found >/dev/null
 sed "s#IMAGE_DIGEST_REFERENCE#$image#g" "$repo_dir/deploy/rhacs/cosign-sign-job.yaml" | oc apply -f - >/dev/null
 
-if ! oc -n "$namespace" wait --for=condition=complete job/cosign-sign-v2 --timeout=180s; then
-  oc -n "$namespace" logs job/cosign-sign-v2 --all-containers=true || true
+if ! oc -n "$namespace" wait --for=condition=complete job/cosign-sign-release --timeout=180s; then
+  oc -n "$namespace" logs job/cosign-sign-release --all-containers=true || true
   exit 1
 fi
-oc -n "$namespace" logs job/cosign-sign-v2 --all-containers=true
+oc -n "$namespace" logs job/cosign-sign-release --all-containers=true
 
 signature_tag="openclaw:sha256-${digest#sha256:}.sig"
 oc -n "$namespace" get istag "$signature_tag" >/dev/null

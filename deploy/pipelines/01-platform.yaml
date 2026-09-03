@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ai-email-cicd
+  name: demo-platform
   labels:
     app.kubernetes.io/part-of: ai-email-security-demo
 ---
@@ -9,17 +9,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: gitea-data
-  namespace: ai-email-cicd
-spec:
-  accessModes: [ReadWriteOnce]
-  resources:
-    requests: {storage: 5Gi}
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: developer-workspace
-  namespace: ai-email-cicd
+  namespace: demo-platform
 spec:
   accessModes: [ReadWriteOnce]
   resources:
@@ -29,7 +19,52 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: pipeline
-  namespace: ai-email-cicd
+  namespace: demo-platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: developer-edit
+  namespace: demo-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: edit
+subjects:
+  - kind: User
+    name: developer
+  - kind: Group
+    name: system:serviceaccounts:developer-devspaces
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: developer-application-admin
+  namespace: ai-email-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: User
+    name: developer
+  - kind: Group
+    name: system:serviceaccounts:developer-devspaces
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: developer-runtime-evidence-view
+  namespace: demo-webhook
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: User
+    name: developer
+  - kind: Group
+    name: system:serviceaccounts:developer-devspaces
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -62,13 +97,13 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: pipeline
-    namespace: ai-email-cicd
+    namespace: demo-platform
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: gitea-eventlistener
-  namespace: ai-email-cicd
+  namespace: demo-platform
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -76,7 +111,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: pipeline
-    namespace: ai-email-cicd
+    namespace: demo-platform
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -89,7 +124,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: pipeline
-    namespace: ai-email-cicd
+    namespace: demo-platform
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -103,7 +138,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: pipeline
-    namespace: ai-email-cicd
+    namespace: demo-platform
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -117,4 +152,4 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: pipeline
-    namespace: ai-email-cicd
+    namespace: demo-platform

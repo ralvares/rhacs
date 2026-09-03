@@ -1,0 +1,11 @@
+apiVersion: console.openshift.io/v1
+kind: ConsoleLink
+metadata:
+  name: demo-app-workspace
+spec:
+  href: DEVSPACES_URL#GITEA_REPOSITORY_URL
+  location: ApplicationMenu
+  text: Demo App Workspace
+  applicationMenu:
+    section: AI Workload Demo
+    imageURL: https://www.eclipse.org/che/images/logo-eclipseche.svg

@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-01T07:59:48Z",
+  "generatedAt": "2026-09-03T08:20:19Z",
   "namespace": "ai-email-demo",
   "registry": "default-route-openshift-image-registry.apps-crc.testing",
   "images": [
     {
       "tag": "demo-sink:latest",
-      "digest": "sha256:bfdf15722e3250d0d46643afb9f4bc410a66644422560e5f7e532a7b81a4533d",
-      "image": "default-route-openshift-image-registry.apps-crc.testing/ai-email-demo/demo-sink@sha256:bfdf15722e3250d0d46643afb9f4bc410a66644422560e5f7e532a7b81a4533d",
+      "digest": "sha256:aea3166fc9a4c005c21021c327214e2436d6515adaa319e1a6058e7bbf4f014d",
+      "image": "default-route-openshift-image-registry.apps-crc.testing/ai-email-demo/demo-sink@sha256:aea3166fc9a4c005c21021c327214e2436d6515adaa319e1a6058e7bbf4f014d",
       "file": "demo-sink-latest.cdx.json",
       "components": 20901,
       "packages": 708,
@@ -15,8 +15,8 @@
     },
     {
       "tag": "mail-api:latest",
-      "digest": "sha256:29005647fffa7ced23d243a4c32a3175a8e86eaeecd2ac5727390a44ce972d34",
-      "image": "default-route-openshift-image-registry.apps-crc.testing/ai-email-demo/mail-api@sha256:29005647fffa7ced23d243a4c32a3175a8e86eaeecd2ac5727390a44ce972d34",
+      "digest": "sha256:d7cf14b19f834280a9cf940bf70ca1907dfdf526e625d4a3c69ab71ec2fa18c5",
+      "image": "default-route-openshift-image-registry.apps-crc.testing/ai-email-demo/mail-api@sha256:d7cf14b19f834280a9cf940bf70ca1907dfdf526e625d4a3c69ab71ec2fa18c5",
       "file": "mail-api-latest.cdx.json",
       "components": 20901,
       "packages": 708,
@@ -24,30 +24,30 @@
     },
     {
       "tag": "openclaw:latest",
-      "digest": "sha256:c3ebbd4d97112f353d576011aabffb4ed8e23ffff8ba0d707851b1f798fadeb4",
-      "image": "default-route-openshift-image-registry.apps-crc.testing/ai-email-demo/openclaw@sha256:c3ebbd4d97112f353d576011aabffb4ed8e23ffff8ba0d707851b1f798fadeb4",
+      "digest": "sha256:fdb7963c8401f39a3db8181885a0026cf66cde61e95f6a367ed8d819b40bbf9a",
+      "image": "default-route-openshift-image-registry.apps-crc.testing/ai-email-demo/openclaw@sha256:fdb7963c8401f39a3db8181885a0026cf66cde61e95f6a367ed8d819b40bbf9a",
       "file": "openclaw-latest.cdx.json",
-      "components": 15545,
-      "packages": 1293,
-      "files": 14252
+      "components": 15518,
+      "packages": 1279,
+      "files": 14239
     },
     {
       "tag": "openclaw:v1",
-      "digest": "sha256:571ecee48f1652f60edcb6a856859f432893d338689799438b5e588312aaa720",
-      "image": "default-route-openshift-image-registry.apps-crc.testing/ai-email-demo/openclaw@sha256:571ecee48f1652f60edcb6a856859f432893d338689799438b5e588312aaa720",
+      "digest": "sha256:fdb7963c8401f39a3db8181885a0026cf66cde61e95f6a367ed8d819b40bbf9a",
+      "image": "default-route-openshift-image-registry.apps-crc.testing/ai-email-demo/openclaw@sha256:fdb7963c8401f39a3db8181885a0026cf66cde61e95f6a367ed8d819b40bbf9a",
       "file": "openclaw-v1.cdx.json",
-      "components": 15411,
-      "packages": 1226,
-      "files": 14185
+      "components": 15518,
+      "packages": 1279,
+      "files": 14239
     },
     {
       "tag": "openclaw:v2",
-      "digest": "sha256:c3ebbd4d97112f353d576011aabffb4ed8e23ffff8ba0d707851b1f798fadeb4",
-      "image": "default-route-openshift-image-registry.apps-crc.testing/ai-email-demo/openclaw@sha256:c3ebbd4d97112f353d576011aabffb4ed8e23ffff8ba0d707851b1f798fadeb4",
+      "digest": "sha256:49a9d263ef4f5be1e108aff5ac2f6ef262d3850e111ea8d74b8a23464e01664c",
+      "image": "default-route-openshift-image-registry.apps-crc.testing/ai-email-demo/openclaw@sha256:49a9d263ef4f5be1e108aff5ac2f6ef262d3850e111ea8d74b8a23464e01664c",
       "file": "openclaw-v2.cdx.json",
-      "components": 15545,
-      "packages": 1293,
-      "files": 14252
+      "components": 14962,
+      "packages": 1001,
+      "files": 13961
     }
   ]
 }

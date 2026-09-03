@@ -8,8 +8,6 @@ kind: OperatorGroup
 metadata:
   name: devspaces
   namespace: openshift-devspaces
-spec:
-  targetNamespaces: [openshift-devspaces]
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription

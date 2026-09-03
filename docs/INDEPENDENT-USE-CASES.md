@@ -1,5 +1,7 @@
 # Independent security use cases for the AI workload demo
 
+The current delivery proof starts with an SSH-signed developer commit, builds the candidate, generates a real CycloneDX SBOM from that immutable container image, scans and signs the digest, and attaches the same final-image SBOM as a Cosign attestation. RHACS then evaluates the scoped OpenClaw component/version policy and approved-signature policy. After those image gates pass, the pipeline prepares the demonstrative TPA bundle, checks the deployment manifest, presents one readable evidence Task, and promotes the digest. Supporting delivery namespaces are RHACS custom platform components; `ai-email-demo` remains the user workload.
+
 This guide is for a presenter who already has the application and RHACS running on OpenShift Local. It does not rebuild images, reinstall RHACS, or force the presentation into one long script. Instead, it explains the security question behind each use case, the minimum preparation it needs, what to show, and how to return to a known state.
 
 The application is one AI workload assembled from an agent runtime, open-source packages, a model API, SMTP/IMAP, webmail, Secrets, persistent storage, Kubernetes identity, tools, processes, and network connections. The purpose of the demonstration is to show that securing AI means securing this entire system—not only the model or prompt.
@@ -22,7 +24,9 @@ Do not rebuild everything merely to demonstrate one control.
 |---|---|---|
 | RHACS and applications are already configured | `make rhacs-login` | Creates or validates only the local RHACS API environment file |
 | Applications and RHACS are running, but demo policies/baselines are not prepared | `make setup-rhacs` | Configures registry access, base-image references, signing policy, runtime policy, and baselines; does not reinstall RHACS or rebuild images |
-| The full demo is prepared but runtime or RHACS evidence is dirty | `make demo-reset` | Recreates all demo Deployments, reconciles policies/base images/baselines, refreshes cached evidence, and resolves demo alerts; preserves RHACS and existing images |
+| The full demo is prepared but only runtime evidence is dirty | `make demo-reset-runtime` | Resets mailbox, sessions, receiver, runtime alerts, and egress without touching delivery evidence |
+| Gitea, Dev Spaces, or Pipeline history is dirty | `make demo-reset-delivery` | Recreates one seed commit, the workspace, and the prepared failed-v1 and approved-v2 runs after deleting old pipeline history |
+| A completely fresh presentation is required | `make demo-reset` | Rebuilds and recreates applications, RHACS presentation state, delivery state, and runtime state without reinstalling RHACS |
 | Only a build-time use case is needed | `make rhacs-login`, then run that use case | Does not touch the application runtime |
 
 The independent use cases begin after both the application and RHACS exist. A first installation remains documented in the main README.
@@ -107,13 +111,14 @@ An SBOM is an inventory, not a statement that the software is safe. It gives dev
 ```bash
 make rhacs-login
 make rhacs-shell
-IMAGE=image-registry.openshift-image-registry.svc:5000/ai-email-demo/openclaw:v2
+IMAGE="$(oc -n ai-email-demo get deployment/openclaw \
+  -o jsonpath='{.spec.template.spec.containers[?(@.name=="openclaw")].image}')"
 
 roxctl image sbom --image "$IMAGE" --force \
-  > reports/rhacs/openclaw-v2.spdx.json
+  > reports/rhacs/openclaw-promoted.spdx.json
 
 jq -r '.packages[]? | [.name, .versionInfo, .supplier] | @tsv' \
-  reports/rhacs/openclaw-v2.spdx.json | head -20
+  reports/rhacs/openclaw-promoted.spdx.json | head -20
 ```
 
 ### What to explain
@@ -138,10 +143,11 @@ The deployment follows the Red Hat Communities of Practice internal-registry ove
 
 Which known vulnerabilities and disallowed components are present before deployment?
 
-The repository keeps two image variants for the story:
+The repository keeps one release stream and changes it in place:
 
-- `openclaw:v1` contains real `openclaw@2026.2.13`, affected by Critical GHSA-j7p2-qcwm-94v4; it is scanned but never started;
-- `openclaw:v2` contains maintained `openclaw@2026.7.1`, is signed by immutable digest, and remains the running release.
+- the opening `openclaw:v1` contains real `openclaw@2026.2.13` and is the deliberately affected running workload;
+- the developer updates the same `versions/v1` source to exact `openclaw@2026.8.2`;
+- the pipeline builds a commit-specific candidate, signs its immutable digest, passes RHACS, and promotes that digest back to `v1` and `latest`.
 
 ### Preparation, not presentation
 
@@ -151,7 +157,7 @@ Run the full image checks before the event and cache the results:
 make prepare
 ```
 
-During the presentation, run only `make show`, then use the prepared RHACS browser tabs. The cached proof shows v1 failing the component-version and signature gates and v2 passing both targeted gates. Residual v2 findings remain visible rather than being suppressed.
+During the presentation, use the failed and successful PipelineRuns plus the prepared RHACS browser tabs. `make show` remains a CLI fallback. The opening candidate fails both targeted gates because it has the affected component version and no approved image signature; the remediated signed digest passes both. Residual findings remain visible rather than being suppressed.
 
 ### If the command fails before scanning
 
@@ -175,9 +181,9 @@ Do not treat `--insecure-skip-tls-verify` as a fix for a registry `401`: it addr
 
 Does the Kubernetes candidate select the intended artifact and enter the exact RHACS policy scope?
 
-Both candidate manifests carry Deployment label `app=openclaw`. The v1 manifest selects `openclaw:v1`; the v2 manifest selects `openclaw:v2`. The two RHACS policies are restricted to cluster `production`, namespace `ai-email-demo`, and that Deployment label.
+Both the opening and rendered release manifests carry Deployment label `app=openclaw`. The opening manifest selects `openclaw:v1`; the pipeline renders the successful manifest with the exact candidate digest. The two RHACS policies are restricted to cluster `production`, namespace `ai-email-demo`, and that Deployment label.
 
-The preparation gate validates both YAML files locally and verifies Central's stored DEPLOY stages, enforcement actions, and scope. It also saves `roxctl deployment check` reports for general configuration findings. `roxctl deployment check` does not evaluate Central resource scopes, so do not remove the scope merely to force these two policies into a static report. Never apply the v1 manifest.
+The preparation gate validates the deliberately bad YAML and the clean release template, and verifies Central's stored DEPLOY stages, enforcement actions, and scope. It also saves `roxctl deployment check` reports for general configuration findings. `roxctl deployment check` does not evaluate Central resource scopes, so do not remove the scope merely to force these two policies into a static report. The deliberately bad manifest is never applied.
 
 ## Use case 4 — signature, provenance, and admission trust
 
@@ -189,7 +195,7 @@ A signature binds an approved identity to an immutable digest. Provenance adds t
 
 ### Demonstration
 
-If v2 has already been signed, use the prepared image policy result from use case 2. Refreshing the signature is a preparation-only action:
+If the promoted candidate has already been signed, use the successful PipelineRun or the prepared image-policy result from use case 2. Refreshing the standalone signature is a preparation-only action:
 
 ```bash
 make prepare-resign
@@ -286,7 +292,7 @@ Recreate the complete clean presentation state:
 make demo-reset
 ```
 
-This creates the clean opening and the clean RHACS state. It deletes and recreates all application Deployments so Sensor assigns new deployment identities, then reapplies registry access, approved base images, policies, process baselines, and network baselines. It refreshes the cached v1/v2 evidence and resolves all active alerts in the demo namespaces. Existing internal images, RHACS Central, and Scanner data are preserved.
+This creates the clean opening and the clean RHACS state. It rebuilds the affected application images through the original OpenShift BuildConfigs and recreates all application Deployments so Sensor assigns new deployment identities. It then reapplies registry access, approved base images, policies, process baselines, and network baselines; resets Gitea and Dev Spaces; removes old PipelineRuns and archived Results; and stages one rejected v1 plus one approved-but-held v2 candidate. RHACS Central, Scanner data, the vulnerability database, and application PVCs are preserved. The exact order and the smaller runtime/delivery reset commands are in `docs/DEMO-RESET-RUNBOOK.md`.
 
 It also scopes unrelated generic default policies away from the demo namespaces,
 so mutable-tag and package-manager findings do not pollute the opening screen.
@@ -349,7 +355,7 @@ make egress-restore
 
 ## File Activity Monitoring on this CRC
 
-The demo configures **Demo - Unexpected Runtime Artifact** for creation/open-for-write of `/tmp/agent-runtime-context.snapshot`. The policy is path-and-operation based and is intentionally independent of a process name.
+The demo applies [`deploy/rhacs/policies/unexpected-runtime-artifact.yaml`](../deploy/rhacs/policies/unexpected-runtime-artifact.yaml) as **Demo - Unexpected Runtime Artifact** for creation/open-for-write of `/tmp/agent-runtime-context.snapshot`. The policy is path-and-operation based and is intentionally independent of a process name.
 
 RHACS 4.11 File Activity Monitoring is Technology Preview and reports only from x86 workers. This CRC worker is ARM64. The SecuredCluster can show the feature enabled and Collector can show a ready `fact` container, but this node does not emit the file-activity violation.
 
@@ -365,9 +371,9 @@ Therefore:
 ### Ten-minute supply-chain story
 
 1. SBOM inventory.
-2. v1 versus v2 image scan and policy.
+2. affected versus remediated candidate scan and policy.
 3. bad versus clean Deployment check.
-4. v2 signature result.
+4. promoted-digest signature result.
 5. base-image ownership handoff.
 
 No mailbox reset or runtime activity is required.

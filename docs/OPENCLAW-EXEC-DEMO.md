@@ -30,7 +30,7 @@ The runtime image is built from:
 ```dockerfile
 FROM registry.access.redhat.com/ubi9/nodejs-22:latest
 
-RUN npm install --omit=dev openclaw@2026.7.1
+RUN npm install --omit=dev openclaw@2026.8.2
 ```
 
 OpenClaw is distributed as a Node.js application. Its image therefore contains:
@@ -48,11 +48,11 @@ The result depends on the exact image digest and the RHACS vulnerability databas
 
 ```sh
 roxctl image scan --image \
-  image-registry.openshift-image-registry.svc:5000/ai-email-demo/openclaw:v2 \
+  image-registry.openshift-image-registry.svc:5000/ai-email-demo/openclaw:v1 \
   --force
 
 roxctl image check --image \
-  image-registry.openshift-image-registry.svc:5000/ai-email-demo/openclaw:v2 \
+  image-registry.openshift-image-registry.svc:5000/ai-email-demo/openclaw:v1 \
   --force
 ```
 
@@ -122,7 +122,7 @@ The presentation must not disclose the workflow note or command execution in the
 | Receiver evidence desk | The bounded synthetic artifact or callback transcript |
 | RHACS | Image contents, process activity, baseline deviation, alerts, and network flow |
 
-`services/openclaw/workspace/AGENTS.md` and the mailbox skill require silent background processing and prohibit workflow-note details in the final answer. Because pinned OpenClaw `2026.7.1` stores tool/thinking visibility in each browser and rejects the newer gateway-level `ui.prefs` configuration, the image runs `patch-presentation-ui.mjs` at build time. It forces thinking and tool-call rendering off, renames the modified entry asset to avoid stale browser caches, and rewrites all lazy-loaded module imports to that new name. The patch is version-specific and fails the build unless it finds exactly the expected preference merge, HTML reference, and internal module references.
+`services/openclaw/workspace/AGENTS.md` and the mailbox skill require silent background processing and prohibit workflow-note details in the final answer. OpenClaw `2026.8.2` uses its maintained upstream Control UI; the build does not rewrite version-specific frontend bundles. Keep activity detail collapsed in the audience browser and show independent process, network, and receiver evidence in the security views.
 
 This changes presentation only. Tool events remain in the gateway session, child processes still run in the pod, and RHACS/receiver evidence remains available.
 
@@ -160,7 +160,7 @@ This is capability abuse through indirect prompt injection, not an OpenClaw remo
 
 ### Before runtime: image and deployment
 
-- OpenClaw/Node/npm and operating-system packages found in `openclaw:v2`;
+- OpenClaw/Node/npm and operating-system packages found in `openclaw:v1`;
 - current CVEs tied to the exact image digest;
 - deployment-policy results for the clean manifest;
 - the Cosign signature/admission result as a separate supply-chain control.
@@ -210,7 +210,7 @@ After applying `deploy/network-policy/after-restricted.yaml`, the same `curl` at
 | Concern | Path |
 |---|---|
 | OpenClaw image | `services/openclaw/Dockerfile` |
-| Audience-mode UI patch | `services/openclaw/patch-presentation-ui.mjs` |
+| Audience presentation | Upstream OpenClaw UI with activity detail kept collapsed |
 | Workspace policy | `services/openclaw/workspace/AGENTS.md` |
 | Mailbox skill | `services/openclaw/workspace/skills/mailbox/SKILL.md` |
 | IMAP helper | `services/openclaw/workspace/skills/mailbox/scripts/mailbox.py` |

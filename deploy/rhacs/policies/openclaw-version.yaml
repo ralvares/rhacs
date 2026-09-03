@@ -1,0 +1,35 @@
+apiVersion: config.stackrox.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: demo-critical-openclaw-release-blocked
+  namespace: stackrox
+spec:
+  policyName: Demo - Critical OpenClaw release blocked
+  description: The candidate contains OpenClaw 2026.2.13, which is below the maintained release baseline used by this demonstration.
+  rationale: Component-version policy gives the pipeline a deterministic supply-chain gate independent of vulnerability-database timing.
+  remediation: Update the OpenClaw dependency to the maintained version, rebuild the image, scan the new digest, and submit it again.
+  categories: [Vulnerability Management, Supply Chain Security]
+  lifecycleStages: [BUILD, DEPLOY]
+  enforcementActions:
+    - FAIL_BUILD_ENFORCEMENT
+    - SCALE_TO_ZERO_ENFORCEMENT
+    - UNSATISFIABLE_NODE_CONSTRAINT_ENFORCEMENT
+    - FAIL_DEPLOYMENT_CREATE_ENFORCEMENT
+    - FAIL_DEPLOYMENT_UPDATE_ENFORCEMENT
+  eventSource: NOT_APPLICABLE
+  severity: CRITICAL_SEVERITY
+  disabled: false
+  scope:
+    - cluster: production
+      namespace: ai-email-demo
+      label: {key: app, value: openclaw}
+  policySections:
+    - sectionName: Affected OpenClaw runtime component
+      policyGroups:
+        - fieldName: Image Component
+          booleanOperator: OR
+          values:
+            - value: 'openclaw=2026\.2\.13([-._][a-zA-Z0-9]+)*$'
+  criteriaLocked: false
+  mitreVectorsLocked: false
+  isDefault: false

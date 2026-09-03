@@ -1,0 +1,34 @@
+apiVersion: config.stackrox.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: demo-unexpected-runtime-artifact
+  namespace: stackrox
+spec:
+  policyName: Demo - Unexpected Runtime Artifact
+  description: Detects creation or writable opening of the demo runtime-context staging artifact. The rule uses only file path and file operation evidence.
+  rationale: The personal-agent workload should not create a staged copy of its runtime context while preparing an email summary.
+  remediation: Inspect the file activity, agent session, process tree, and network graph; contain the workload and repair tool authorization.
+  categories: [File Activity Monitoring]
+  lifecycleStages: [RUNTIME]
+  enforcementActions: []
+  eventSource: DEPLOYMENT_EVENT
+  severity: HIGH_SEVERITY
+  disabled: false
+  scope:
+    - cluster: production
+      namespace: ai-email-demo
+  policySections:
+    - sectionName: unexpected staged runtime context
+      policyGroups:
+        - fieldName: File Path
+          booleanOperator: OR
+          values:
+            - value: /tmp/agent-runtime-context.snapshot
+        - fieldName: File Operation
+          booleanOperator: OR
+          values:
+            - value: OPEN
+            - value: CREATE
+  criteriaLocked: false
+  mitreVectorsLocked: false
+  isDefault: false

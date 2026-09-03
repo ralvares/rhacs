@@ -1,4 +1,16 @@
 {
   "redHatDependencyAnalytics.usePythonVirtualEnvironment": true,
-  "redHatDependencyAnalytics.usePipDepTree": false
+  "redHatDependencyAnalytics.usePipDepTree": false,
+  "redHatDependencyAnalytics.python3.executable.path": "/opt/demo-venv/bin/python3",
+  "redHatDependencyAnalytics.python.executable.path": "/opt/demo-venv/bin/python",
+  "redHatDependencyAnalytics.pip3.executable.path": "/opt/demo-venv/bin/pip3",
+  "redHatDependencyAnalytics.pip.executable.path": "/opt/demo-venv/bin/pip",
+  "python.defaultInterpreterPath": "/opt/demo-venv/bin/python",
+  "terminal.integrated.defaultProfile.linux": "bash",
+  "terminal.integrated.profiles.linux": {
+    "bash": {
+      "path": "/bin/bash",
+      "args": ["--login"]
+    }
+  }
 }

@@ -7,6 +7,39 @@ spec:
   components:
     pluginRegistry:
       openVSXURL: https://open-vsx.org
+  networking:
+    auth:
+      gateway:
+        deployment:
+          containers:
+            - name: gateway
+              resources:
+                request:
+                  cpu: 25m
+                  memory: 64Mi
+                limits:
+                  memory: 512Mi
+            - name: configbump
+              resources:
+                request:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+            - name: oauth-proxy
+              resources:
+                request:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 256Mi
+            - name: kube-rbac-proxy
+              resources:
+                request:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 256Mi
   devEnvironments:
     defaultEditor: che-incubator/che-code/latest
     secondsOfRunBeforeIdling: 1800

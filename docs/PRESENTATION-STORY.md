@@ -90,7 +90,7 @@ The same story should work for several roles. Each role asks a different questio
 | Developer | Is this dependency safe to introduce? | Red Hat Dependency Analytics | Package finding before build |
 | AI/application engineer | What libraries, agent tools, and model connections make up my workload? | Dependency analysis, SBOM/AIBOM, application controls | Node/npm inventory, model endpoint, `read`/`exec` capabilities |
 | Platform engineer | Can teams get a secure path to production without constructing it repeatedly? | OpenShift builds, pipelines, GitOps, signing, policy | Repeatable OpenShift build and deployment |
-| AppSec engineer | What shipped, and does it satisfy policy? | RHTPA composition analysis and RHACS scanning | SBOM, v1/v2 scan, bad/clean manifest checks |
+| AppSec engineer | What shipped, and does it satisfy policy? | RHTPA composition analysis and RHACS scanning | SBOM, affected/remediated digest scan, bad/clean manifest checks |
 | Security operations | What is the workload doing now? | RHACS process and network visibility | `python3`, `curl`, and the cross-namespace flow |
 | Cloud/Kubernetes security | How far can a wrong decision reach? | ServiceAccount, RBAC, RHACS, NetworkPolicy | Restricted identity and blocked receiver flow |
 | Risk/compliance | Can we prove composition, provenance, and control decisions? | SBOMs, attestations, signatures, immutable evidence | Component inventory, signed digest, policy result |
@@ -175,8 +175,8 @@ Explain:
 
 Demo mapping:
 
-- open `services/openclaw/v1/package.json` and `services/openclaw/v2/package.json` side by side: v1 contains affected `openclaw@2026.2.13`; v2 contains maintained `openclaw@2026.7.1`;
-- contrast it with the real v2 Node/npm dependency stack inherited from the agent-runtime image.
+- open `versions/v1/package.json`: the single candidate begins with affected `openclaw@2026.2.13`;
+- update the same v1 dependency and lockfile to maintained `2026.8.2`; the pipeline then proves what reached the final image.
 
 Speaker point:
 
@@ -323,8 +323,8 @@ Explain the three stages:
 
 | Stage | RHACS contribution | Example in this demo |
 |---|---|---|
-| Build | Image/package vulnerability scanning and CI policy | Compare v1 and v2 images |
-| Build | SPDX 2.3 SBOM generation from an image scan | Export the exact v2 image inventory |
+| Build | Image/package vulnerability scanning and CI policy | Compare the affected and remediated candidate digests |
+| Build | SPDX 2.3 SBOM generation from an image scan | Export the exact promoted-image inventory |
 | Deploy | Kubernetes configuration and admission policy | Flag privileged manifest; assess clean manifest and signature policy |
 | Runtime | Process, deployment, and network visibility with configured policy response | Observe `curl` and the receiver flow |
 
@@ -401,11 +401,11 @@ Story:
 
 Demo evidence:
 
-- v1 deliberately obsolete package findings;
-- v1 privileged deployment failure;
-- v2 Node/npm package inventory;
-- v2 clean Kubernetes manifest, evaluated separately from its remaining package findings;
-- v2 signature/admission result when configured.
+- deliberately obsolete opening-package findings;
+- deliberately privileged manifest failure;
+- maintained candidate Node/npm package inventory;
+- clean digest-pinned Kubernetes manifest, evaluated separately from remaining package findings;
+- promoted-digest signature/admission result when configured.
 
 ### Slide 12 — Everything passes; then the input changes
 
@@ -545,7 +545,7 @@ Pre-stage before the session:
 - completed build and provenance evidence;
 - Dependency Analytics finding;
 - SBOM/RHTPA view;
-- v1/v2 RHACS scan and deployment-policy results;
+- affected/remediated RHACS scan and deployment-policy results;
 - signature/admission evidence;
 - running workload and a preconfigured pairing-free demo browser connection;
 - normal mailbox baseline;

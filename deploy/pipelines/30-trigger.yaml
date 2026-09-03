@@ -1,6 +1,6 @@
 apiVersion: triggers.tekton.dev/v1beta1
 kind: TriggerBinding
-metadata: {name: gitea-push, namespace: ai-email-cicd}
+metadata: {name: gitea-push, namespace: demo-platform}
 spec:
   params:
     - {name: revision, value: $(body.after)}
@@ -8,7 +8,7 @@ spec:
 ---
 apiVersion: triggers.tekton.dev/v1beta1
 kind: TriggerTemplate
-metadata: {name: openclaw-release, namespace: ai-email-cicd}
+metadata: {name: openclaw-release, namespace: demo-platform}
 spec:
   params:
     - {name: revision}
@@ -18,7 +18,7 @@ spec:
       kind: PipelineRun
       metadata:
         generateName: openclaw-release-
-        namespace: ai-email-cicd
+        namespace: demo-platform
         labels:
           app.kubernetes.io/name: openclaw-release
           triggers.tekton.dev/eventlistener: gitea
@@ -26,7 +26,7 @@ spec:
         pipelineRef: {name: openclaw-release}
         taskRunTemplate: {serviceAccountName: pipeline}
         params:
-          - {name: git-url, value: "http://gitea.ai-email-cicd.svc.cluster.local:3000/demo/ai-email-demo-app.git"}
+          - {name: git-url, value: "http://gitea.demo-platform.svc.cluster.local:3000/developer/demo-app.git"}
           - {name: revision, value: $(tt.params.revision)}
           - {name: image-tag, value: $(tt.params.image-tag)}
         workspaces:
@@ -35,19 +35,12 @@ spec:
               spec:
                 accessModes: [ReadWriteOnce]
                 resources: {requests: {storage: 3Gi}}
-          - name: evidence
-            persistentVolumeClaim: {claimName: pipeline-evidence}
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata: {name: pipeline-evidence, namespace: ai-email-cicd}
-spec:
-  accessModes: [ReadWriteOnce]
-  resources: {requests: {storage: 3Gi}}
+          - name: rox-api-token-auth
+            secret: {secretName: rox-api-token}
 ---
 apiVersion: triggers.tekton.dev/v1beta1
 kind: EventListener
-metadata: {name: gitea, namespace: ai-email-cicd}
+metadata: {name: gitea, namespace: demo-platform}
 spec:
   serviceAccountName: pipeline
   triggers:
@@ -57,15 +50,16 @@ spec:
           params:
             - name: filter
               value: >-
+                header.canonical('Authorization').compareSecret('token', 'gitea-webhook-token') &&
                 header.match('X-Gitea-Event', 'push') &&
                 body.ref == 'refs/heads/main' &&
-                body.repository.full_name == 'demo/ai-email-demo-app'
+                body.repository.full_name == 'developer/demo-app'
       bindings: [{ref: gitea-push}]
       template: {ref: openclaw-release}
 ---
 apiVersion: route.openshift.io/v1
 kind: Route
-metadata: {name: gitea-webhook, namespace: ai-email-cicd}
+metadata: {name: gitea-webhook, namespace: demo-platform}
 spec:
   to: {kind: Service, name: el-gitea}
   port: {targetPort: http-listener}

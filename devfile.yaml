@@ -7,25 +7,65 @@ attributes:
   controller.devfile.io/storage-type: per-workspace
 components:
   - name: tools
+    attributes:
+      # Merge the Che Code editor contribution into the prepared tooling
+      # container. This makes Terminal > New Terminal open the tools shell by
+      # default instead of the separate editor-runtime container.
+      controller.devfile.io/merge-contribution: true
     container:
-      image: registry.redhat.io/devspaces/udi-rhel9:latest
-      memoryRequest: 1Gi
-      memoryLimit: 3Gi
-      cpuRequest: 100m
+      image: image-registry.openshift-image-registry.svc:5000/demo-platform/demo-workstation:latest
+      memoryRequest: 512Mi
+      memoryLimit: 2Gi
+      cpuRequest: 25m
       cpuLimit: "2"
       mountSources: true
       env:
-        - {name: GIT_AUTHOR_NAME, value: Demo Developer}
-        - {name: GIT_AUTHOR_EMAIL, value: demo@demo.test}
-        - {name: GIT_COMMITTER_NAME, value: Demo Developer}
-        - {name: GIT_COMMITTER_EMAIL, value: demo@demo.test}
+        - {name: PATH, value: "/opt/demo-venv/bin:/home/user/.local/bin:/usr/local/bin:/usr/bin:/bin"}
+        - {name: SHELL, value: /bin/bash}
+        - {name: HOME, value: /home/user}
+        - {name: NPM_CONFIG_CACHE, value: /tmp/npm-cache}
+        # RHDA 1.0 passes these values to its Trustify dependency-analysis
+        # subprocess. VS Code settings alone are not sufficient in Dev Spaces.
+        - {name: TRUSTIFY_DA_PYTHON_VIRTUAL_ENV, value: "true"}
+        - {name: TRUSTIFY_DA_PYTHON3_PATH, value: /opt/demo-venv/bin/python3}
+        - {name: TRUSTIFY_DA_PYTHON_PATH, value: /opt/demo-venv/bin/python}
+        - {name: TRUSTIFY_DA_PIP3_PATH, value: /opt/demo-venv/bin/pip3}
+        - {name: TRUSTIFY_DA_PIP_PATH, value: /opt/demo-venv/bin/pip}
+        - {name: TRUSTIFY_DA_NPM_PATH, value: /usr/bin/npm}
+        - {name: GIT_AUTHOR_NAME, value: Developer}
+        - {name: GIT_AUTHOR_EMAIL, value: developer@demo.test}
+        - {name: GIT_COMMITTER_NAME, value: Developer}
+        - {name: GIT_COMMITTER_EMAIL, value: developer@demo.test}
 commands:
   - id: configure-workspace
     exec:
       component: tools
       commandLine: >-
-        git config --global user.name 'Demo Developer' &&
-        git config --global user.email 'demo@demo.test' &&
+        git config --global user.name 'Developer' &&
+        git config --global user.email 'developer@demo.test' &&
+        mkdir -p /home/user/.ssh &&
+        cp /etc/gitea-ssh/id_ed25519 /home/user/.ssh/id_ed25519 &&
+        chmod 0600 /home/user/.ssh/id_ed25519 &&
+        cp /etc/gitea-ssh/id_ed25519.pub /home/user/.ssh/id_ed25519.pub &&
+        chmod 0644 /home/user/.ssh/id_ed25519.pub &&
+        git remote set-url origin ssh://git@gitea.demo-platform.svc.cluster.local:2222/developer/demo-app.git &&
+        git config --global core.sshCommand 'ssh -i /home/user/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new' &&
+        git config --global gpg.format ssh &&
+        git config --global user.signingkey /home/user/.ssh/id_ed25519.pub &&
+        git config --global commit.gpgsign true &&
+        version=$(node -p 'require("./versions/v1/package.json").dependencies.openclaw') &&
+        rm -rf versions/v1/node_modules &&
+        cp -a "/opt/demo-dependencies/openclaw-${version}" versions/v1/node_modules &&
+        version=$(node -p 'require("./versions/v2/package.json").dependencies.openclaw') &&
+        rm -rf versions/v2/node_modules &&
+        cp -a "/opt/demo-dependencies/openclaw-${version}" versions/v2/node_modules &&
+        python -c 'import fastapi, uvicorn; print("Python application dependencies ready")' &&
+        test -r /etc/profile.d/rhacs-demo.sh &&
+        grep -q 'cosign-demo-env.sh' /home/user/.bashrc || printf '\n# Prepare the raw Cosign SBOM demonstration in each terminal.\nsource /projects/demo-app/scripts/cosign-demo-env.sh --quiet\n' >> /home/user/.bashrc &&
+        bash -lc 'source /projects/demo-app/scripts/cosign-demo-env.sh --quiet' &&
+        test "${TRUSTIFY_DA_PYTHON_VIRTUAL_ENV}" = true &&
+        npm --prefix versions/v1 ls --all --package-lock-only --omit=dev --json >/dev/null &&
+        npm --prefix versions/v2 ls --all --package-lock-only --omit=dev --json >/dev/null &&
         printf '\nDeveloper workspace ready. Open requirements.txt or package.json to begin.\n'
       workingDir: ${PROJECT_SOURCE}
   - id: test
@@ -34,5 +74,11 @@ commands:
       commandLine: python3 -m pytest -q
       workingDir: ${PROJECT_SOURCE}
       group: {kind: test, isDefault: true}
+  - id: demo-shell
+    exec:
+      component: tools
+      commandLine: exec /bin/bash --login
+      workingDir: ${PROJECT_SOURCE}
+      group: {kind: run, isDefault: true}
 events:
   postStart: [configure-workspace]

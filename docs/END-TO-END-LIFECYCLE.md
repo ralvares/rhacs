@@ -1,5 +1,33 @@
 # End-to-end AI workload and RHACS demonstration
 
+## Current delivery path
+
+The prepared OpenShift Dev Spaces workspace uses an internal UBI/Dev Spaces workstation image with `oc`, `kubectl`, `roxctl`, `kustomize`, `jq`, `yq`, `git`, `cosign`, `syft`, and `tkn`. Setup creates it as the `developer` user and configures SSH-signed Git commits. The pipeline verifies the commit signature before building.
+
+The same image preloads FastAPI/Uvicorn in `/opt/demo-venv` and both locked OpenClaw npm dependency trees. On workspace start, the devfile selects the tree that matches the current package version and validates the exact `npm ls` command used by RHDA. `.vscode/settings.json` points RHDA's Python and pip executable settings to `/opt/demo-venv` and keeps isolated virtual-environment mode available for requirements files that intentionally represent a different dependency set.
+
+For CRC, open the workspace with `make devspaces-open`. Service-worker certificate validation happens in the browser and cannot be repaired by installing a CA inside the Dev Spaces container. The Make target uses a dedicated Chrome profile and pins only the current CRC ingress key; it never changes the workstation trust store.
+
+```mermaid
+flowchart LR
+    dev[Dev Spaces<br/>Dependency Analytics] --> commit[SSH-signed commit]
+    commit --> verify[Verify Git signature]
+    verify --> build[Build image]
+    build --> scan[RHACS image scan]
+    build --> sbom[CycloneDX final-image SBOM]
+    scan --> sign[Cosign digest<br/>SBOM attestation]
+    sbom --> sign
+    sign --> imageGate[RHACS OpenClaw version<br/>and signature gates]
+    imageGate --> tpa[Prepare TPA bundle]
+    tpa --> deployGate[RHACS deployment check]
+    deployGate --> evidence[Readable release evidence]
+    evidence --> promote[Promote digest]
+```
+
+The two scoped custom RHACS policies are deterministic: one rejects `openclaw@2026.2.13`; the other rejects an image digest not verified by the approved Cosign key. Both have Critical severity, but this is not a blanket Critical-vulnerability gate. TPA is not installed here: the pipeline prepares a real SBOM publication bundle and explicitly skips upload. Publication preparation precedes the deployment check because image composition and Kubernetes manifest posture are separate decisions.
+
+RHACS keeps `ai-email-demo` as the user workload. It classifies `demo-platform`, `demo-webhook`, `developer-devspaces`, `external-sender`, `openshift-devspaces`, and `openshift-pipelines` as custom platform components.
+
 ## Purpose
 
 This is the complete presentation guide: development dependencies, build, software supply chain, deployment, runtime behavior, containment, recovery, and presenter language.
@@ -173,7 +201,7 @@ There are two intentionally different dependency stories.
 
 ### v1: deterministic failing scan target
 
-`services/openclaw/v1` and `services/openclaw/v2` are the authoritative, side-by-side build and developer-analysis projects. The scan-only v1 container installs `openclaw@2026.2.13`; the maintained v2 container installs `openclaw@2026.7.1`. The v1 release is affected by Critical advisory GHSA-j7p2-qcwm-94v4, fixed in `2026.3.22`. RHACS evaluates the component name and version directly. The v1 image is never started or deployed.
+The repository carries two small dependency records for a time-safe presentation. `versions/v1` pins affected `openclaw@2026.2.13`; `versions/v2` pins maintained `openclaw@2026.8.2`. Both use the same OpenClaw image recipe and BuildConfig. Setup runs the complete pipeline for each candidate ahead of time. v1 is rejected and remains the opening workload. v2 is scanned, inventoried, signed, and approved but held from production until `make promote-v2`.
 
 This gives the presenter a stable comparison:
 
@@ -182,13 +210,13 @@ flowchart LR
     v1[openclaw v1] --> affected[openclaw 2026.2.13]
     affected --> failure[Component-version and signature policy failure]
 
-    v2[openclaw v2] --> openclaw[OpenClaw runtime]
-    openclaw --> candidate[Signed deployment candidate]
+    v2[openclaw v2] --> maintained[openclaw 2026.8.2]
+    maintained --> candidate[Signed approved candidate held for promotion]
 ```
 
-### v2: the real OpenClaw application
+### The rebuilt v1 image: the real OpenClaw application
 
-`openclaw:v2` installs the OpenClaw Node.js application and npm/pnpm dependency tree on `registry.access.redhat.com/ubi9/nodejs-22:latest`. The resulting image also includes the small mailbox workspace from this repository.
+The rebuilt `openclaw:v1` installs the OpenClaw Node.js application and npm/pnpm dependency tree on `registry.access.redhat.com/ubi9/nodejs-22:latest`. The resulting image also includes the small mailbox workspace from this repository.
 
 Developer-time dependency analysis and RHACS image scanning answer related but different questions:
 
@@ -198,7 +226,9 @@ Developer-time dependency analysis and RHACS image scanning answer related but d
 | SBOM/package inventory | What components are associated with the artifact? |
 | RHACS image scan | What packages and known vulnerabilities are detected in the built image digest? |
 
-If Red Hat Dependency Analytics is available, use the default `requirements.txt` file to show an obvious developer-time Python finding. Then use the standard npm manifests to bridge into the real OpenClaw lineage example. For v2, explain that OpenClaw's application dependency tree is installed by the image build on top of the declared UBI Node.js base. RHACS can therefore distinguish UBI base layers from application layers containing OpenClaw packages.
+Open the repository through its `devfile.yaml` in Red Hat OpenShift Dev Spaces. The repository's `.vscode/extensions.json` requests Red Hat Dependency Analytics automatically. Use the default `requirements.txt` file to show developer-time Python analysis, then open `versions/v1/package.json` for the real OpenClaw lineage example. The image build installs that application dependency tree on top of the declared UBI Node.js base, so RHACS can distinguish UBI base layers from application layers containing OpenClaw packages.
+
+Update the same source record from exact `openclaw@2026.2.13` to exact `openclaw@2026.8.2`, update its lockfile, create an SSH-signed commit, and push it to the internal Gitea repository. That webhook starts the `openclaw-release` Pipeline. From this point onward, the presenter follows browser evidence rather than running individual build, SBOM, signing, or RHACS commands. See `docs/OPENSHIFT-PIPELINES-DEMO.md` for the exact flow and fallback.
 
 ## Stage 2 — OpenShift build and internal registry
 
@@ -213,9 +243,9 @@ The setup process:
 1. creates the namespace and generated Secrets;
 2. creates ImageStreams and binary BuildConfigs;
 3. uploads each build context to OpenShift;
-4. builds `mail-api`, `openclaw:v1`, `openclaw:v2`, and `demo-sink`;
+4. builds `mail-api`, `openclaw:v1`, and `demo-sink`;
 5. stores the images in the OpenShift internal registry;
-6. tags `openclaw:v2` as `openclaw:latest`;
+6. tags the approved `openclaw:v1` digest as `openclaw:latest`;
 7. deploys the application and Routes;
 8. creates the external sender and receiver namespaces;
 9. applies permissive opening-state egress;
@@ -241,7 +271,7 @@ OpenClaw Node/npm packages
 demo workspace files
 ```
 
-An image SBOM or package inventory should be associated with the immutable v2 image digest. If Trusted Profile Analyzer is available, import the generated SBOM and use it to answer:
+An image SBOM or package inventory should be associated with the immutable promoted image digest. If Trusted Profile Analyzer is available, import the generated SBOM and use it to answer:
 
 - Which artifacts contain a particular npm package?
 - Which version was shipped in this digest?
@@ -253,8 +283,8 @@ Generate the image SBOM from the RHACS scan:
 ```sh
 source .rhacs.env
 export ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY=true # CRC Route certificate only
-IMAGE="image-registry.openshift-image-registry.svc:5000/ai-email-demo/openclaw@$(oc -n ai-email-demo get istag openclaw:v2 -o jsonpath='{.image.metadata.name}')"
-roxctl image sbom --image "$IMAGE" --force > reports/rhacs/openclaw-v2.spdx.json
+IMAGE="image-registry.openshift-image-registry.svc:5000/ai-email-demo/openclaw@$(oc -n ai-email-demo get istag openclaw:v1 -o jsonpath='{.image.metadata.name}')"
+roxctl image sbom --image "$IMAGE" --force > reports/rhacs/openclaw-v1.spdx.json
 ```
 
 This is an SPDX 2.3 image SBOM derived from RHACS Scanner's view of the exact digest. Present it as one valid generation path, not the only SBOM in the lifecycle. Dependency Analytics can generate developer-time CycloneDX evidence; a build workflow can generate and attach release SBOMs; RHTPA stores and correlates composition across products and releases.
@@ -265,7 +295,7 @@ Do not claim that the remotely hosted DeepSeek model is part of the container SB
 
 ### Base-image origin and ownership
 
-Run `make rhacs-base-images` after RHACS credentials are available. It registers the UBI Node.js and Python repositories used by this workload. In RHACS, open **Platform Configuration → Base Images**, then inspect `openclaw:v2` under **Vulnerability Management → Results** and filter findings by layer type.
+Run `make rhacs-base-images` after RHACS credentials are available. It registers the UBI Node.js and Python repositories used by this workload. In RHACS, open **Platform Configuration → Base Images**, then inspect `openclaw:v1` under **Vulnerability Management → Results** and filter findings by layer type.
 
 The ownership handoff is deliberate:
 
@@ -294,14 +324,7 @@ After RHACS is installed and `ROX_ENDPOINT` and `ROX_API_TOKEN` are configured:
 make rhacs-gate
 ```
 
-The script performs six checks:
-
-1. scan obsolete v1;
-2. require v1 to fail image policy;
-3. verify that v1 contains `openclaw@2026.2.13` and fails both targeted build policies;
-4. scan current v2;
-5. require v2 to satisfy configured image policies;
-6. require the clean v2 manifest to satisfy deployment policies.
+The standalone gate is retained as a CLI teaching path. Against the clean opening state it scans the deliberately unsigned affected candidate and proves two independent failures: the exact `openclaw@2026.2.13` component violates the maintained-version policy, and the image digest lacks the approved Cosign signature. It also evaluates the clean and deliberately unsafe deployment manifests. During the normal presentation, the equivalent checks run as visible OpenShift Pipeline Tasks against the commit-specific candidate digest.
 
 Presenter order and pause points:
 
@@ -324,7 +347,7 @@ The deployment candidate is:
 deploy/rhacs/clean-openclaw.yaml
 ```
 
-The vulnerable package count and current v2 findings depend on the exact image digest and RHACS vulnerability database. Show the live result; do not promise a hardcoded CVE count.
+The vulnerable package count and current promoted-image findings depend on the exact image digest and RHACS vulnerability database. Show the live result; do not promise a hardcoded CVE count.
 
 ## Stage 5 — signing and admission
 
@@ -334,17 +357,17 @@ Generate a demonstration Cosign key pair:
 make signing-key
 ```
 
-Sign the immutable v2 digest:
+Sign the immutable candidate digest:
 
 ```sh
 make sign
 ```
 
-Configure and verify the two scoped policies before presenting this stage. Demonstrate RHACS rejection of `openclaw@2026.2.13` by component name/version and rejection of unsigned v1, then RHACS verification of maintained, signed v2. Both policies are configured for BUILD and DEPLOY enforcement under `production / ai-email-demo / app=openclaw`. The presentation uses cached proof and never creates v1. See `docs/SUPPLY-CHAIN-SHOW.md` for the exact CLI/scoping boundary.
+Configure and verify the two scoped policies before presenting this stage. Demonstrate RHACS rejection of the opening `openclaw@2026.2.13` candidate by component name/version, then show the maintained candidate passing both the component-version and approved-signature gates. Both policies are configured for BUILD and DEPLOY under `production / ai-email-demo / app=openclaw`; deployment enforcement remains detect-only until the presenter explicitly enables it. The opening workload is created before the policies so it can remain running while the new pipeline candidate is rejected. See `docs/SUPPLY-CHAIN-SHOW.md` for the exact CLI/scoping boundary.
 
 Treat that sentence as an acceptance condition, not an assumption. Verify that Admission Control reports at least one enforceable deploy-time policy and that a controlled bad-manifest request is denied. If it is not, present the verified `roxctl` findings and say that admission is not configured; never turn a static detection result into a claimed live block.
 
-The demo signs inside CRC using the namespace's short-lived builder ServiceAccount token. It deliberately uses Cosign 2.4.3's classic digest-tag attachment format: Cosign 3's OCI index attachment is rejected by the OpenShift integrated registry because the non-runnable signature descriptors omit platform fields. `sign-release-v2.sh` must finish with a registry `.sig` ImageStreamTag, and `configure-signature-policy.sh` imports the public key into RHACS. There is no detached fallback.
+The demo signs inside CRC using the namespace's short-lived builder ServiceAccount token. It deliberately uses Cosign 2.4.3's classic digest-tag attachment format: Cosign 3's OCI index attachment is rejected by the OpenShift integrated registry because the non-runnable signature descriptors omit platform fields. `make sign` must finish with a registry `.sig` ImageStreamTag, and `configure-signature-policy.sh` imports the public key into RHACS. There is no detached fallback.
 
 A signature establishes artifact provenance. It does not establish that every future model decision is safe.
 
@@ -385,7 +408,7 @@ For the OpenClaw browser connection:
 2. leave Password empty;
 3. select Connect.
 
-The presentation configuration disables Control UI device pairing while retaining gateway-token authentication. This avoids an `oc exec` approval command appearing as workload process activity. The setting is intentionally limited to this isolated demo and is not a production recommendation.
+The presentation configuration disables Control UI device pairing while retaining gateway-token authentication. It also sets the `exec` policy to full/off and seeds OpenClaw's host-local approval file from the Deployment. Mailbox reads and the bounded runtime scenario therefore do not pause for approval. These settings are intentionally limited to this isolated demo and are not production recommendations.
 
 ## Stage 7 — establish normal behavior
 
@@ -395,7 +418,7 @@ Prepare the complete clean baseline:
 make demo-reset
 ```
 
-This full reset preserves RHACS Central, Scanner data, PVCs, and existing internal-registry images. It resolves old demo alerts, deletes and recreates every application Deployment, skips the chatbot smoke request, restores the mailbox and permissive network state, and clears receiver evidence. It then reconciles registry access, approved base images, policies, signatures, process baselines, and network baselines against the new deployment identities. The cached v1/v2 evidence is refreshed, and the command fails unless the demo namespaces finish with zero active RHACS alerts.
+This full reset preserves RHACS Central, Scanner data, its vulnerability database, and application PVCs. It rebuilds the affected application images through the original OpenShift BuildConfigs, resolves old demo alerts, and recreates every application Deployment. It skips the chatbot smoke request, restores the mailbox and permissive network state, and clears receiver evidence. It then reconciles registry access, approved base images, policies, signatures, process baselines, and network baselines against the new deployment identities. Finally, it recreates Gitea and Dev Spaces, stages the rejected v1 and approved v2 PipelineRuns, enables deployment admission, and asserts two PipelineRuns, two Tekton Results entries, and zero unexpected active RHACS alerts. See `docs/DEMO-RESET-RUNBOOK.md` for the exact order and smaller reset scopes.
 
 To make that zero-alert starting point reproducible, the reset creates narrow
 demo-namespace exclusions for generic defaults that are outside this story,
@@ -481,7 +504,7 @@ Use `rhacs-nb-list` for each workload before the runtime act; the router and
 `dns-default` rows must be `baseline`, while both agent-to-receiver rows must be
 `forbidden`.
 
-The SecuredCluster also enables RHACS 4.11 File Activity Monitoring. Treat it as Technology Preview, and remember that violation reporting is x86-only in 4.11 while this CRC node is ARM64. The `Demo - Unexpected Runtime Artifact` policy monitors `/tmp/agent-runtime-context.snapshot` for `OPEN` and `CREATE` without any process criterion. The source `.env` read remains invisible to file monitoring because it is read-only. Correlate the staged-file event on x86 with the separate unexpected-process alert, network deviation, and receiver log.
+The SecuredCluster also enables RHACS 4.11 File Activity Monitoring. Treat it as Technology Preview, and remember that violation reporting is x86-only in 4.11 while this CRC node is ARM64. The declarative [`deploy/rhacs/policies/unexpected-runtime-artifact.yaml`](../deploy/rhacs/policies/unexpected-runtime-artifact.yaml) policy monitors `/tmp/agent-runtime-context.snapshot` for `OPEN` and `CREATE` without any process criterion. The source `.env` read remains invisible to file monitoring because it is read-only. Correlate the staged-file event on x86 with the separate unexpected-process alert, network deviation, and receiver log.
 
 ## Stage 8 — send the external HTML email
 
@@ -644,7 +667,7 @@ make email-injection
 make egress-restrict
 ```
 
-The first command is optional if the RHACS UI already contains the prepared v1/v2 scan and policy results. The audience-facing flow should be:
+The first command is optional if OpenShift Pipelines and the RHACS UI already contain the prepared affected/remediated candidate results. The audience-facing flow should be:
 
 ```mermaid
 flowchart LR
@@ -672,8 +695,8 @@ Show Roundcube, then ask for the normal summary.
 3. Show the image package inventory/SBOM and TPA if available.
 4. Scan v1 and show the expected rejection.
 5. Check the privileged manifest and show the expected rejection.
-6. Scan and check v2.
-7. Show the v2 signature and admission decision.
+6. Follow the remediated commit's PipelineRun through final-image SBOM, scan, signing, and both RHACS gates.
+7. Show the promoted digest's signature and deployment decision.
 
 Say:
 
@@ -733,11 +756,11 @@ Before the session, verify:
 - RHACS Collector process telemetry;
 - RHACS Network Graph flow;
 - the before/after NetworkPolicy states;
-- v1 rejection, v2 checks, signing, and admission if those stages are presented.
+- opening-candidate rejection, remediated-candidate checks, signing, and admission if those stages are presented.
 
 Keep screenshots of the dependency result, SBOM/TPA view, image scan, bad deployment rejection, signature/admission result, process tree, Network Graph, receiver event, and contained repeat.
 
-After an `openclaw` image rollout, wait until only one ready agent pod remains before refreshing the Control UI. A transient `Failed to fetch dynamically imported module` message can occur when the browser crosses the old/new frontend transition. Confirm the named module returns HTTP 200 and imports `audience-index-zot7ymVq.js` through the Route, then refresh once. Do not add `ui.prefs` to the `2026.7.1` gateway configuration; this version rejects that field. The build-time audience patch rewrites the entry page and all lazy-module references and is the reproducible control for this pinned release.
+After an `openclaw` image rollout, wait until only one ready agent pod remains before refreshing the Control UI. A transient dynamic-module error can occur when the browser crosses the old/new frontend transition; refresh only after rollout completion. Release `2026.8.2` uses the maintained upstream frontend and the image does not rewrite its bundles.
 
 ## Reset between demonstrations
 
@@ -768,8 +791,8 @@ and recreates the process and network baselines.
 `setup.sh` reuses existing OpenShift ImageStreamTags on repeated setup runs so
 a single-node CRC does not rebuild identical layers. Use
 `OPENSHIFT_REBUILD_IMAGES=true make setup-full` only after source
-or base-image changes. The tested full-lab CRC disk size is 200 GB; apply a
-larger disk to an existing instance with `crc config set disk-size 200`, then
+or base-image changes. The tested full-lab CRC disk size is 300 GB; apply a
+larger disk to an existing instance with `crc config set disk-size 300`, then
 `crc stop` and `crc start`, and confirm the capacity with `crc status`.
 
 To test the RHACS installer itself, use the deliberately explicit destructive
@@ -797,7 +820,7 @@ make demo-run
 - The body is bounded to 4 KiB.
 - The receiver is isolated in-cluster and has no Route.
 - No cloud metadata, genuine credential, or internet target is used.
-- v1 is scan-only and is never deployed.
+- v1 is the deliberately affected opening workload and is replaced only through the approved promotion path.
 - The external sender is fixed to the demonstration message.
 
 ## Final message

@@ -1,0 +1,9 @@
+.git
+.work
+.pytest_cache
+__pycache__
+outputs
+reports
+sboms
+*.pptx
+*.pdf
