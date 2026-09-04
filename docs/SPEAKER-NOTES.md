@@ -12,7 +12,7 @@
 
 > “I prepared both decisions before this session. One pipeline run shows why v1 was rejected. The other shows why v2 earned approval. This lets us discuss the evidence without waiting for a build.”
 
-> “RHACS keeps `ai-email-demo` as the user workload. The pipeline, Dev Spaces, Gitea, sender, and receiver namespaces are custom platform components, so supporting machinery does not obscure the workload risk.”
+> “RHACS keeps `ai-email-demo` as the user workload. The pipeline, Dev Spaces, Gitea, sender, receiver, and CRC host-path storage provisioner namespaces are custom platform components, so supporting machinery does not obscure the workload risk.”
 
 ### Live delivery script
 
@@ -44,7 +44,7 @@ Pause on the evidence card:
 
 > “The release was not trusted because one scanner returned green. It earned promotion through connected evidence: signed source, repeatable build, final-image inventory, signature, image policy, deployment policy, and an immutable digest.”
 
-Run `make promote-v2`, pause on the RHACS admission message, and then open OpenClaw.
+Run `make promote-v2`, pause on the RHACS admission message, and then open OpenClaw. Promotion replaces the v1 state PVC, so the first v2 browser connection can request device pairing. Click **Connect**, run `make credentials` to approve the pending device automatically, and click **Connect** again.
 
 > “Nothing is rebuilding now. RHACS is deciding whether this already-approved immutable digest may replace the running v1 workload. It is accepted, and v2 becomes our runtime subject.”
 

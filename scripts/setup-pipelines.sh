@@ -32,20 +32,46 @@ wait_for_csv() {
   return 1
 }
 
+wait_for_pods_ready() {
+  namespace=$1 selector=$2 description=$3 attempts=${4:-120}
+  for _ in $(seq 1 "$attempts"); do
+    pods=$(oc -n "$namespace" get pods -l "$selector" -o json 2>/dev/null || true)
+    [ -n "$pods" ] || pods='{"items":[]}'
+    count=$(jq -r '.items | length' <<<"$pods")
+    if [ "$count" -gt 0 ] && jq -e '
+      .items | all(
+        any(.status.conditions[]?; .type == "Ready" and .status == "True")
+      )' <<<"$pods" >/dev/null; then
+      echo "$description is ready ($count pod(s))."
+      return 0
+    fi
+    sleep 5
+  done
+  echo "Timed out waiting for $description." >&2
+  oc -n "$namespace" get pods -l "$selector" -o wide >&2 || true
+  return 1
+}
+
 echo "[1/8] Installing OpenShift Pipelines without changing RHACS..."
 oc apply -f "$repo_dir/deploy/pipelines/00-operator.yaml"
 wait_for_csv openshift-operators openshift-pipelines-operator-rh
-oc wait --for=condition=Ready pod -l app.kubernetes.io/part-of=tekton-pipelines \
-  -n openshift-pipelines --timeout=10m >/dev/null 2>&1 || true
+for _ in $(seq 1 120); do
+  oc get tektonconfig config >/dev/null 2>&1 && break
+  sleep 5
+done
+oc wait --for=condition=Ready tektonconfig/config --timeout=15m >/dev/null || {
+  echo "OpenShift Pipelines TektonConfig did not become Ready." >&2
+  oc get tektonconfig config -o jsonpath='{range .status.conditions[*]}{.type}={.status}: {.message}{"\n"}{end}' >&2 || true
+  exit 1
+}
+wait_for_pods_ready openshift-pipelines \
+  app.kubernetes.io/part-of=tekton-pipelines "OpenShift Pipelines control plane"
 plugins=$(oc get console.operator.openshift.io cluster -o json | jq -c '
   (.spec.plugins // []) + ["pipelines-console-plugin"] | unique')
 oc patch console.operator.openshift.io cluster --type=merge \
   -p "{\"spec\":{\"plugins\":${plugins}}}" >/dev/null
-oc -n openshift-pipelines wait --for=condition=Ready pod \
-  -l app=pipelines-console-plugin --timeout=5m >/dev/null 2>&1 || {
-    echo "Pipelines console plugin is configured but its pod is not Ready." >&2
-    exit 1
-  }
+wait_for_pods_ready openshift-pipelines app=pipelines-console-plugin \
+  "Pipelines console plugin"
 oc get console.operator.openshift.io cluster -o json | jq -e \
   '.spec.plugins | index("pipelines-console-plugin")' >/dev/null
 echo "OpenShift Pipelines console plugin is enabled."

@@ -9,7 +9,13 @@ repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 namespace=${DEMO_PLATFORM_NAMESPACE:-demo-platform}
 workspace_namespace=${DEVSPACES_USER_NAMESPACE:-developer-devspaces}
 delete_all=false
-[ "${1:-}" = --all ] && delete_all=true
+pipeline_history_only=false
+case "${1:-}" in
+  --all) delete_all=true ;;
+  --pipeline-history-only) delete_all=true; pipeline_history_only=true ;;
+  "") ;;
+  *) echo "usage: $0 [--all|--pipeline-history-only]" >&2; exit 2 ;;
+esac
 
 command -v oc >/dev/null 2>&1 || {
   echo "oc is required" >&2
@@ -129,6 +135,10 @@ delete_failed_workspace() {
 
 delete_old_pipeline_runs
 delete_archived_pipeline_results
+if [ "$pipeline_history_only" = true ]; then
+  echo "Pipeline presentation history is empty and ready for exactly two staged runs."
+  exit 0
+fi
 delete_failed_builds
 if [ "$delete_all" = true ]; then
   "$repo_dir/scripts/prune-crc-demo-images.sh"

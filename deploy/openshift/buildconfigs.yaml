@@ -7,6 +7,12 @@ metadata:
 apiVersion: image.openshift.io/v1
 kind: ImageStream
 metadata:
+  name: document-agent
+  namespace: ai-email-demo
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
   name: openclaw
   namespace: ai-email-demo
 ---
@@ -28,6 +34,21 @@ spec:
     dockerStrategy: {dockerfilePath: Dockerfile}
   output:
     to: {kind: ImageStreamTag, name: "mail-api:latest"}
+  successfulBuildsHistoryLimit: 2
+  failedBuildsHistoryLimit: 2
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: document-agent
+  namespace: ai-email-demo
+spec:
+  source: {type: Binary}
+  strategy:
+    type: Docker
+    dockerStrategy: {dockerfilePath: Dockerfile}
+  output:
+    to: {kind: ImageStreamTag, name: "document-agent:latest"}
   successfulBuildsHistoryLimit: 2
   failedBuildsHistoryLimit: 2
 ---

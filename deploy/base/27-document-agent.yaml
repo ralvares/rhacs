@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: document-agent
+  namespace: ai-email-demo
+  labels: {app: document-agent}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: document-agent}}
+  template:
+    metadata: {labels: {app: document-agent}}
+    spec:
+      serviceAccountName: document-agent
+      containers:
+        - name: document-agent
+          image: IMAGE_REGISTRY/ai-email-demo/document-agent:latest
+          imagePullPolicy: Always
+          env:
+            - {name: INFERENCE_API_URL, value: INFERENCE_API_URL}
+            - {name: INFERENCE_MODEL, value: INFERENCE_MODEL}
+            - name: INFERENCE_API_TOKEN
+              valueFrom:
+                secretKeyRef: {name: inference-credentials, key: api-token}
+          ports: [{name: http, containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 3}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 15}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: document-agent
+  namespace: ai-email-demo
+spec:
+  selector: {app: document-agent}
+  ports: [{name: http, port: 8080, targetPort: http}]

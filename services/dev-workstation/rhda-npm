@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# RHDA runs `npm install` before reading the dependency tree. The demo
+# workstation already contains the exact lockfile-resolved trees, so repeating
+# that network install delays every editor activation by several minutes.
+if [ "${1:-}" = install ] && [ -f package-lock.json ] && [ -d node_modules ]; then
+  /usr/bin/npm ls --all --package-lock-only --omit=dev --json >/dev/null
+  exit 0
+fi
+
+exec /usr/bin/npm "$@"

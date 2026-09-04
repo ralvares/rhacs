@@ -30,6 +30,8 @@ apply_base() {
   inference_model_name=${INFERENCE_MODEL_NAME:-DeepSeek V4 Flash Cloud}
   inference_secondary_model=${INFERENCE_SECONDARY_MODEL:-gpt-oss:120b-cloud}
   inference_secondary_model_name=${INFERENCE_SECONDARY_MODEL_NAME:-GPT OSS 120B Cloud}
+  inference_tertiary_model=${INFERENCE_TERTIARY_MODEL:-llama3.2}
+  inference_tertiary_model_name=${INFERENCE_TERTIARY_MODEL_NAME:-Llama 3.2}
   escape_sed() { printf '%s' "$1" | sed 's/[&|]/\\&/g'; }
   inference_api_url_escaped=$(escape_sed "$inference_api_url")
   inference_api_type_escaped=$(escape_sed "$inference_api_type")
@@ -38,6 +40,8 @@ apply_base() {
   inference_model_name_escaped=$(escape_sed "$inference_model_name")
   inference_secondary_model_escaped=$(escape_sed "$inference_secondary_model")
   inference_secondary_model_name_escaped=$(escape_sed "$inference_secondary_model_name")
+  inference_tertiary_model_escaped=$(escape_sed "$inference_tertiary_model")
+  inference_tertiary_model_name_escaped=$(escape_sed "$inference_tertiary_model_name")
   trusted_proxy_escaped=$(escape_sed "$trusted_proxy")
   for manifest in "$repo_dir"/deploy/base/*.yaml; do
     sed \
@@ -47,6 +51,8 @@ apply_base() {
       -e "s|INFERENCE_PROVIDER|$inference_provider_escaped|g" \
       -e "s|INFERENCE_SECONDARY_MODEL_NAME|$inference_secondary_model_name_escaped|g" \
       -e "s|INFERENCE_SECONDARY_MODEL|$inference_secondary_model_escaped|g" \
+      -e "s|INFERENCE_TERTIARY_MODEL_NAME|$inference_tertiary_model_name_escaped|g" \
+      -e "s|INFERENCE_TERTIARY_MODEL|$inference_tertiary_model_escaped|g" \
       -e "s|INFERENCE_MODEL_NAME|$inference_model_name_escaped|g" \
       -e "s|INFERENCE_MODEL|$inference_model_escaped|g" \
       -e "s|OPENCLAW_TRUSTED_PROXY|$trusted_proxy_escaped|g" \
@@ -76,6 +82,8 @@ DEMO_REGION=lab-only"
     --dry-run=client -o yaml | "$cli" apply -f -
   "$cli" -n ai-email-demo create secret generic demo-runtime-context \
     --from-literal=runtime-context="$demo_runtime_context" \
+    --from-literal=demo-api-key="synthetic-${demo_context_id}" \
+    --from-literal=demo-region="lab-only" \
     --dry-run=client -o yaml | "$cli" apply -f -
   "$cli" -n ai-email-demo create secret generic openclaw-credentials \
     --from-literal=gateway-token="$gateway_token" \
@@ -102,6 +110,7 @@ if [ "$platform" = "openshift" ]; then
     fi
   }
   build_if_needed mail-api mail-api:latest "$repo_dir/services/mail-api"
+  build_if_needed document-agent document-agent:latest "$repo_dir/services/document-agent"
   build_if_needed openclaw-v1 openclaw:v1 "$repo_dir/services/openclaw"
   oc -n ai-email-demo tag openclaw:v1 openclaw:latest
   build_if_needed demo-sink demo-sink:latest "$repo_dir/services/unauthorized-demo-service"
@@ -112,13 +121,14 @@ if [ "$platform" = "openshift" ]; then
   # Start closed. After the Route is live, setup learns the immediate proxy
   # address observed by OpenClaw and replaces this bootstrap-only value.
   apply_base oc "image-registry.openshift-image-registry.svc:5000/ai-email-demo" "$webmail_internal" "127.0.0.1"
-  oc -n ai-email-demo rollout restart deployment/mail-server deployment/mail-api deployment/openclaw
+  oc -n ai-email-demo rollout restart deployment/mail-server deployment/mail-api deployment/document-agent deployment/openclaw
   oc apply -f "$repo_dir/deploy/openshift/routes.yaml"
   oc -n ai-email-demo delete networkpolicy openclaw-egress-after --ignore-not-found
   oc apply -f "$repo_dir/deploy/network-policy/before-permissive.yaml"
   oc -n ai-email-demo rollout status deployment/mail-server --timeout=180s
   oc -n ai-email-demo rollout status deployment/webmail --timeout=180s
   oc -n ai-email-demo rollout status deployment/mail-api --timeout=180s
+  oc -n ai-email-demo rollout status deployment/document-agent --timeout=300s
   oc -n ai-email-demo rollout status deployment/openclaw --timeout=180s
   oc -n ai-email-demo rollout status deployment/unauthorized-demo-service --timeout=180s
   openclaw_route=$(oc -n ai-email-demo get route openclaw -o jsonpath='{.spec.host}')
@@ -193,7 +203,11 @@ if [ "$platform" = "openshift" ]; then
     echo "Skipping the chatbot smoke test for a clean presentation reset."
   else
     echo "Running an end-to-end chatbot smoke test..."
-    oc -n ai-email-demo exec deployment/openclaw -- node openclaw.mjs agent --agent main --message "Summarize today's email" --json
+    # This is an in-container health check, not a second browser device. Run
+    # the embedded agent directly so a clean gateway never emits a pairing
+    # warning or creates a presenter-visible device request during setup.
+    oc -n ai-email-demo exec deployment/openclaw -- node openclaw.mjs agent \
+      --local --agent main --message "Summarize today's email" --json
   fi
   echo "OpenShift demo is ready."
   oc -n ai-email-demo get routes
@@ -219,18 +233,20 @@ elif [ "$platform" = "kubernetes" ]; then
   kubectl apply -f "$repo_dir/deploy/base/00-namespace.yaml"
   apply_runtime_secrets kubectl
   apply_base kubectl "$registry" "$roundcube_source"
-  kubectl -n ai-email-demo rollout restart deployment/mail-server deployment/mail-api deployment/openclaw
+  kubectl -n ai-email-demo rollout restart deployment/mail-server deployment/mail-api deployment/document-agent deployment/openclaw
   sed \
     -e "s/INGRESS_CLASS/$ingress_class/g" \
     -e "s/WEBMAIL_HOST/webmail.$domain/g" \
     -e "s/MAIL_API_HOST/mail-api.$domain/g" \
     -e "s/AI_AGENT_HOST/openclaw.$domain/g" \
+    -e "s/DOCUMENT_AGENT_HOST/documents.$domain/g" \
     "$repo_dir/deploy/kubernetes/ingress.yaml" | kubectl apply -f -
   kubectl -n ai-email-demo delete networkpolicy openclaw-egress-after --ignore-not-found
   kubectl apply -f "$repo_dir/deploy/network-policy/before-permissive.yaml"
   kubectl -n ai-email-demo rollout status deployment/mail-server --timeout=180s
   kubectl -n ai-email-demo rollout status deployment/webmail --timeout=180s
   kubectl -n ai-email-demo rollout status deployment/mail-api --timeout=180s
+  kubectl -n ai-email-demo rollout status deployment/document-agent --timeout=300s
   kubectl -n ai-email-demo rollout status deployment/openclaw --timeout=180s
   kubectl -n ai-email-demo rollout status deployment/unauthorized-demo-service --timeout=180s
   kubectl -n ai-email-demo delete deployment,service,serviceaccount,persistentvolumeclaim \
@@ -238,7 +254,7 @@ elif [ "$platform" = "kubernetes" ]; then
   kubectl -n ai-email-demo delete persistentvolumeclaim ai-agent-state --ignore-not-found
   kubectl -n ai-email-demo delete networkpolicy \
     ai-agent-egress-before ai-agent-egress-after --ignore-not-found
-  echo "Kubernetes demo is ready at webmail.$domain, mail-api.$domain, and openclaw.$domain"
+  echo "Kubernetes demo is ready at webmail.$domain, mail-api.$domain, openclaw.$domain, and documents.$domain"
 else
   usage
 fi

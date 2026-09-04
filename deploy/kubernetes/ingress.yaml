@@ -27,4 +27,10 @@ spec:
             pathType: Prefix
             backend:
               service: {name: openclaw, port: {name: http}}
-
+    - host: DOCUMENT_AGENT_HOST
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: document-agent, port: {name: http}}

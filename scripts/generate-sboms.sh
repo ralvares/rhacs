@@ -30,6 +30,7 @@ tags_json=$(oc -n "$namespace" get imagestreamtags -o json | jq -c '[
         or .metadata.name == "openclaw:v2"
         or .metadata.name == "openclaw:latest"
         or .metadata.name == "mail-api:latest"
+        or .metadata.name == "document-agent:latest"
         or .metadata.name == "demo-sink:latest")
   | {tag:.metadata.name,digest:.image.metadata.name}
 ] | sort_by(.tag)')

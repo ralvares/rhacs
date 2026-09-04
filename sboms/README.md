@@ -7,6 +7,7 @@ These documents were generated from the immutable OpenShift internal-registry di
 | `openclaw-v1.cdx.json` | `openclaw:v1` |
 | `openclaw-latest.cdx.json` | `openclaw:latest` |
 | `mail-api-latest.cdx.json` | `mail-api:latest` |
+| `document-agent-latest.cdx.json` | `document-agent:latest` |
 | `demo-sink-latest.cdx.json` | `demo-sink:latest` |
 
 `index.json` records the exact digest, source reference, output filename, package count, and file-component count for every document. `openclaw:v1` is the single candidate and `openclaw:latest` is its promoted alias.
@@ -22,3 +23,16 @@ make sboms
 ```
 
 Upload any `.cdx.json` file directly to TPA. Do not upload `index.json`; it is the local provenance map for the set.
+
+## SPDX 2.3 image SBOMs
+
+Run `make spdx-sboms` to generate image SBOMs for the two OpenClaw release
+tags. These are separate from the CycloneDX presentation set:
+
+| File | Built ImageStreamTag | Format |
+|---|---|---|
+| `openclaw-v1.spdx.json` | `openclaw:v1` | SPDX 2.3 JSON |
+| `openclaw-v2.spdx.json` | `openclaw:v2` | SPDX 2.3 JSON |
+
+The generator resolves each tag to its immutable image digest, scans that
+image, and rejects output unless `spdxVersion` is exactly `SPDX-2.3`.

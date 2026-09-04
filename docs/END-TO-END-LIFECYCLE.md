@@ -2,7 +2,7 @@
 
 ## Current delivery path
 
-The prepared OpenShift Dev Spaces workspace uses an internal UBI/Dev Spaces workstation image with `oc`, `kubectl`, `roxctl`, `kustomize`, `jq`, `yq`, `git`, `cosign`, `syft`, and `tkn`. Setup creates it as the `developer` user and configures SSH-signed Git commits. The pipeline verifies the commit signature before building.
+The prepared OpenShift Dev Spaces workspace uses an internal UBI/Dev Spaces workstation image with `oc`, `kubectl`, `roxctl`, `kustomize`, `jq`, `yq`, `git`, `podman`, `cosign`, `syft`, and `tkn`. Setup creates it as the `developer` user and configures SSH-signed Git commits. The pipeline verifies the commit signature before building.
 
 The same image preloads FastAPI/Uvicorn in `/opt/demo-venv` and both locked OpenClaw npm dependency trees. On workspace start, the devfile selects the tree that matches the current package version and validates the exact `npm ls` command used by RHDA. `.vscode/settings.json` points RHDA's Python and pip executable settings to `/opt/demo-venv` and keeps isolated virtual-environment mode available for requirements files that intentionally represent a different dependency set.
 
@@ -26,7 +26,7 @@ flowchart LR
 
 The two scoped custom RHACS policies are deterministic: one rejects `openclaw@2026.2.13`; the other rejects an image digest not verified by the approved Cosign key. Both have Critical severity, but this is not a blanket Critical-vulnerability gate. TPA is not installed here: the pipeline prepares a real SBOM publication bundle and explicitly skips upload. Publication preparation precedes the deployment check because image composition and Kubernetes manifest posture are separate decisions.
 
-RHACS keeps `ai-email-demo` as the user workload. It classifies `demo-platform`, `demo-webhook`, `developer-devspaces`, `external-sender`, `openshift-devspaces`, and `openshift-pipelines` as custom platform components.
+RHACS keeps `ai-email-demo` as the user workload. It classifies `demo-platform`, `demo-webhook`, `developer-devspaces`, `external-sender`, `hostpath-provisioner`, `openshift-devspaces`, and `openshift-pipelines` as custom platform components.
 
 ## Purpose
 
@@ -37,7 +37,7 @@ The application is a realistic AI workload with several components:
 - an agent runtime provides browser chat, sessions, the agent loop, workspace, skills, and tools;
 - GreenMail provides SMTP and IMAP.
 - Roundcube lets the audience view the same HTML email a human sees.
-- `deepseek-v4-flash:cloud` is reached through the workstation's native Ollama API.
+- `deepseek-v4-flash:cloud` remains the default; `gpt-oss:120b-cloud` and the locally pulled `llama3.2` are selectable through the same native API.
 - OpenShift builds and stores the application images in its internal registry.
 - RHACS provides image, deployment, process, and network evidence.
 - OpenShift NetworkPolicy contains the demonstrated cross-namespace flow.
@@ -408,7 +408,7 @@ For the OpenClaw browser connection:
 2. leave Password empty;
 3. select Connect.
 
-The presentation configuration disables Control UI device pairing while retaining gateway-token authentication. It also sets the `exec` policy to full/off and seeds OpenClaw's host-local approval file from the Deployment. Mailbox reads and the bounded runtime scenario therefore do not pause for approval. These settings are intentionally limited to this isolated demo and are not production recommendations.
+The presentation retains gateway-token authentication and uses the device behavior supported by each release. v1 does not expose the maintained device-management subcommands. v2 requires browser pairing; `make credentials` detects the live version and approves all pending v2 browser requests. It also sets the `exec` policy to full/off and seeds OpenClaw's host-local approval file from the Deployment, so mailbox reads and the bounded runtime scenario do not pause for command approval. These settings are intentionally limited to this isolated demo and are not production recommendations.
 
 ## Stage 7 — establish normal behavior
 
@@ -749,7 +749,7 @@ Before the session, verify:
 - model API reachability from the pod;
 - OpenClaw model and skill lists;
 - SMTP delivery and IMAP retrieval;
-- browser connection with the gateway token and no pairing prompt;
+- version-aware browser connection, with pending v2 device requests approved by `make credentials`;
 - rendered Markdown in Control UI;
 - no thinking, tool cards, progress narration, or workflow-note text in the audience-facing conversation;
 - receiver logging;

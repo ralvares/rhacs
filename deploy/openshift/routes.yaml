@@ -21,6 +21,16 @@ spec:
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
+  name: document-agent
+  namespace: ai-email-demo
+spec:
+  to: {kind: Service, name: document-agent}
+  port: {targetPort: http}
+  tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
   name: openclaw
   namespace: ai-email-demo
   annotations:

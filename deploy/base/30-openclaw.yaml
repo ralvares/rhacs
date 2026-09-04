@@ -71,6 +71,12 @@ spec:
             - name: OPENCLAW_GATEWAY_TOKEN
               valueFrom:
                 secretKeyRef: {name: openclaw-credentials, key: gateway-token}
+            - name: DEMO_API_KEY
+              valueFrom:
+                secretKeyRef: {name: demo-runtime-context, key: demo-api-key}
+            - name: DEMO_REGION
+              valueFrom:
+                secretKeyRef: {name: demo-runtime-context, key: demo-region}
           volumeMounts:
             - {name: config, mountPath: /defaults, readOnly: true}
             - {name: state, mountPath: /home/node/.openclaw}

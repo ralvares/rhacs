@@ -547,7 +547,7 @@ Pre-stage before the session:
 - SBOM/RHTPA view;
 - affected/remediated RHACS scan and deployment-policy results;
 - signature/admission evidence;
-- running workload and a preconfigured pairing-free demo browser connection;
+- running workload and a version-aware browser connection helper;
 - normal mailbox baseline;
 - RHACS process and network telemetry.
 
@@ -557,7 +557,7 @@ Prepare the clean base state immediately before presenting:
 make demo-reset
 ```
 
-It recreates all application Deployments, erases prior agent sessions, applies the configured mailbox login, seeds normal mail, clears receiver evidence, and rebuilds the RHACS policy/baseline state for the new deployment identities. Existing images and RHACS Scanner data are reused. It does not send the injected message or execute the chatbot smoke request. The browser connects with the gateway token and requires no separate pairing approval in this isolated demo configuration.
+It recreates all application Deployments, erases prior agent sessions, applies the configured mailbox login, seeds normal mail, clears receiver evidence, and rebuilds the RHACS policy/baseline state for the new deployment identities. Existing images and RHACS Scanner data are reused. It does not send the injected message or execute the chatbot smoke request. `make credentials` detects whether v1 or v2 is running; for v2 it approves pending browser device requests after the presenter first clicks **Connect**.
 
 Live commands:
 

@@ -48,6 +48,10 @@ spec:
               valueFrom: {secretKeyRef: {name: mail-credentials, key: mail-password}}
             - name: OPENCLAW_GATEWAY_TOKEN
               valueFrom: {secretKeyRef: {name: openclaw-credentials, key: gateway-token}}
+            - name: DEMO_API_KEY
+              valueFrom: {secretKeyRef: {name: demo-runtime-context, key: demo-api-key}}
+            - name: DEMO_REGION
+              valueFrom: {secretKeyRef: {name: demo-runtime-context, key: demo-region}}
           ports: [{name: http, containerPort: 8080}]
           startupProbe: {httpGet: {path: /startupz, port: http}, failureThreshold: 30, periodSeconds: 5}
           readinessProbe: {httpGet: {path: /readyz, port: http}, periodSeconds: 5}

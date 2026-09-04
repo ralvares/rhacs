@@ -10,7 +10,7 @@ done
 api="https://${ROX_ENDPOINT}"
 auth=(-H "Authorization: Bearer $ROX_API_TOKEN" -H 'Content-Type: application/json')
 base_images=(
-    'registry.access.redhat.com/ubi9/python-312|latest|mail-api,demo-sink|messaging-platform'
+    'registry.access.redhat.com/ubi9/python-312|latest|mail-api,document-agent,demo-sink|ai-platform'
     'registry.access.redhat.com/ubi9/nodejs-22|latest|openclaw:v1,openclaw:latest|ai-platform'
 )
 

@@ -1,10 +1,15 @@
 {
+  "security.workspace.trust.enabled": false,
   "redHatDependencyAnalytics.usePythonVirtualEnvironment": true,
   "redHatDependencyAnalytics.usePipDepTree": false,
   "redHatDependencyAnalytics.python3.executable.path": "/opt/demo-venv/bin/python3",
   "redHatDependencyAnalytics.python.executable.path": "/opt/demo-venv/bin/python",
   "redHatDependencyAnalytics.pip3.executable.path": "/opt/demo-venv/bin/pip3",
   "redHatDependencyAnalytics.pip.executable.path": "/opt/demo-venv/bin/pip",
+  "redHatDependencyAnalytics.npm.executable.path": "/usr/local/bin/rhda-npm",
+  "redHatDependencyAnalytics.syft.executable.path": "/usr/local/bin/syft",
+  "redHatDependencyAnalytics.skopeo.executable.path": "/usr/bin/skopeo",
+  "redHatDependencyAnalytics.podman.executable.path": "/usr/bin/podman",
   "python.defaultInterpreterPath": "/opt/demo-venv/bin/python",
   "terminal.integrated.defaultProfile.linux": "bash",
   "terminal.integrated.profiles.linux": {

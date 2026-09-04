@@ -14,6 +14,9 @@ def test_dev_spaces_repository_contract_is_present():
     assert "registry.redhat.io/devspaces/udi-rhel9:latest" in workstation
     for tool in ("roxctl", "cosign", "syft", "kustomize"):
         assert f"/usr/local/bin/{tool}" in workstation
+    assert "registry.access.redhat.com/ubi9/podman:latest AS podman" in workstation
+    assert "COPY --from=podman /usr/bin/podman /usr/bin/podman" in workstation
+    assert "test -x /usr/bin/podman" in workstation
     assert "/opt/demo-venv" in workstation
     assert '"openclaw": "2026.2.13"' in (ROOT / "versions/v1/package.json").read_text()
     assert '"openclaw": "2026.8.2"' in (ROOT / "versions/v2/package.json").read_text()
@@ -27,6 +30,16 @@ def test_dev_spaces_repository_contract_is_present():
     assert "rhacs-cli-env" in (ROOT / "scripts/setup-pipelines.sh").read_text()
     assert "TRUSTIFY_DA_PYTHON_VIRTUAL_ENV" in devfile
     assert "TRUSTIFY_DA_PYTHON3_PATH" in devfile
+    assert "TRUSTIFY_DA_SKOPEO_PATH" in devfile
+    assert "TRUSTIFY_DA_SYFT_PATH" in devfile
+    settings = (ROOT / ".vscode/settings.json").read_text()
+    assert '"redHatDependencyAnalytics.imagePlatform"' in devfile
+    assert 'platform.machine().lower()' in devfile
+    assert '"aarch64":"arm64"' in devfile
+    assert '"x86_64":"amd64"' in devfile
+    assert '"redHatDependencyAnalytics.imagePlatform"' not in settings
+    assert '"redHatDependencyAnalytics.skopeo.executable.path": "/usr/bin/skopeo"' in settings
+    assert '"redHatDependencyAnalytics.syft.executable.path": "/usr/local/bin/syft"' in settings
     assert "commandLine: exec /bin/bash --login" in devfile
     assert 'require("./versions/v1/package.json")' in devfile
     assert "npm --prefix versions/v1" in devfile
@@ -34,6 +47,60 @@ def test_dev_spaces_repository_contract_is_present():
     assert "services/openclaw/v2/node_modules" not in devfile
     assert "controller.devfile.io/merge-contribution: true" in devfile
     assert "redhat.fabric8-analytics" in extensions
+
+
+def test_openclaw_exposes_three_models_with_deepseek_as_default():
+    config = (ROOT / "deploy/base/29-openclaw-config.yaml").read_text()
+    setup = (ROOT / "scripts/setup.sh").read_text()
+
+    assert '"model": {"primary": "INFERENCE_PROVIDER/INFERENCE_MODEL"}' in config
+    assert "INFERENCE_MODEL:-deepseek-v4-flash:cloud" in setup
+    assert "INFERENCE_SECONDARY_MODEL:-gpt-oss:120b-cloud" in setup
+    assert "INFERENCE_TERTIARY_MODEL:-llama3.2" in setup
+    assert config.count('{"id": "INFERENCE_') == 3
+
+
+def test_credentials_and_promotion_are_version_and_state_aware():
+    credentials = (ROOT / "scripts/show-demo-credentials.sh").read_text()
+    promotion = (ROOT / "scripts/promote-v2.sh").read_text()
+
+    assert "openclaw.mjs --version" in credentials
+    assert "2026.2.*|2026.1.*" in credentials
+    assert "devices list --json" in credentials
+    assert "devices approve" in credentials
+    assert credentials.index("devices list --json") < credentials.index("devices approve")
+    assert "rollout pause deployment/openclaw" in promotion
+    assert "scale deployment/openclaw --replicas=0" in promotion
+    assert "delete pvc openclaw-state --wait=true" in promotion
+    assert "kind: PersistentVolumeClaim" in promotion
+    assert 'new_pvc_uid' in promotion and 'old_pvc_uid' in promotion
+    assert "rollout resume deployment/openclaw" in promotion
+
+
+def test_document_agent_uses_real_pdf_and_agent_frameworks():
+    app = (ROOT / "services/document-agent/app/main.py").read_text()
+    requirements = (ROOT / "services/document-agent/requirements.txt").read_text()
+    deployment = (ROOT / "deploy/base/27-document-agent.yaml").read_text()
+    setup = (ROOT / "scripts/setup.sh").read_text()
+
+    for dependency in ("langgraph", "langchain-openai", "pydantic", "pypdf", "reportlab"):
+        assert dependency in requirements
+    assert "StateGraph(DocumentState)" in app
+    assert "class DocumentState(BaseModel)" in app
+    assert 'answer with exactly HELLO' in app
+    assert 'setFillColorRGB(1, 1, 1)' in app
+    assert 'PdfReader' in app
+    assert 'ChatOpenAI' in app
+    assert 'name: document-agent' in deployment
+    assert 'secretKeyRef: {name: inference-credentials, key: api-token}' in deployment
+    assert 'build_if_needed document-agent document-agent:latest' in setup
+    rhacs_setup = (ROOT / "scripts/setup-rhacs-demo.sh").read_text()
+    assert "ai-email-demo/document-agent" in rhacs_setup
+    assert "rhacs-pb-replace ai-email-demo/document-agent" in rhacs_setup
+    assert "rhacs-nb-lock ai-email-demo/document-agent" in rhacs_setup
+    workstation = (ROOT / "services/dev-workstation/Dockerfile").read_text()
+    assert "services/document-agent/requirements.txt" in workstation
+    assert 'or .metadata.name == "document-agent:latest"' in (ROOT / "scripts/generate-sboms.sh").read_text()
 
 
 def test_release_pipeline_orders_security_before_promotion():

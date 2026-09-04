@@ -23,6 +23,7 @@ EOF
 env -u ROX_ENDPOINT -u ROX_API_TOKEN "$repo_dir/scripts/setup-rhacs-demo.sh"
 "$repo_dir/scripts/prepare-supply-chain-demo.sh"
 "$repo_dir/scripts/setup-pipelines.sh"
+"$repo_dir/scripts/cleanup-demo-artifacts.sh" --pipeline-history-only
 "$repo_dir/scripts/stage-affected-pipeline.sh"
 "$repo_dir/scripts/stage-approved-pipeline.sh"
 set -a

@@ -19,7 +19,31 @@ case "$version" in 2026.2.13|2026.8.2) ;; *) echo "Unexpected OpenClaw version i
 echo "[1/3] Final-image SBOM: openclaw@$version"
 
 check="$work_dir/v1-image-check.json"
-roxctl image check --image "$image" --force -o json >"$check" 2>/dev/null || true
+check_error="$work_dir/v1-image-check.stderr"
+scan_attempts=${RHACS_SCAN_ATTEMPTS:-120}
+scan_delay=${RHACS_SCAN_DELAY_SECONDS:-15}
+scan_ready=false
+for attempt in $(seq 1 "$scan_attempts"); do
+  : >"$check"
+  : >"$check_error"
+  # A policy violation makes roxctl exit non-zero, so readiness is determined
+  # by the presence of a valid JSON result rather than by the process status.
+  roxctl image check --image "$image" --force -o json >"$check" 2>"$check_error" || true
+  if jq -e 'type == "object" and (.results | type == "array")' "$check" >/dev/null 2>&1; then
+    scan_ready=true
+    break
+  fi
+  if [ "$attempt" -eq 1 ] || [ $((attempt % 4)) -eq 0 ]; then
+    detail=$(tail -n 1 "$check_error")
+    echo "RHACS image analysis is not ready (${attempt}/${scan_attempts}): ${detail:-no JSON decision returned}" >&2
+  fi
+  sleep "$scan_delay"
+done
+[ "$scan_ready" = true ] || {
+  echo "RHACS did not return a valid image-check decision after $((scan_attempts * scan_delay)) seconds" >&2
+  cat "$check_error" >&2
+  exit 1
+}
 has_policy() { jq -e --arg name "$1" '.. | objects | select(.name? == $name)' "$check" >/dev/null; }
 if [ "$version" = 2026.2.13 ]; then
   has_policy "$version_policy" || { echo "Affected v1 did not trigger the version policy" >&2; exit 1; }

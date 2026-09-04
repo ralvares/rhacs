@@ -6,13 +6,14 @@ work_dir="$repo_dir/.work/cosign"
 key_prefix="$work_dir/rhacs-demo"
 namespace=ai-email-demo
 registry_host=image-registry.openshift-image-registry.svc:5000
+image_tag=${IMAGE_TAG:-v1}
 
 command -v oc >/dev/null 2>&1 || { echo "oc is required" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
 "$repo_dir/scripts/generate-signing-key.sh" >/dev/null
 
-digest=$(oc -n "$namespace" get istag openclaw:v1 -o jsonpath='{.image.metadata.name}')
-[ -n "$digest" ] || { echo "openclaw:v1 has no image digest; run setup first" >&2; exit 2; }
+digest=$(oc -n "$namespace" get istag "openclaw:$image_tag" -o jsonpath='{.image.metadata.name}')
+[ -n "$digest" ] || { echo "openclaw:$image_tag has no image digest; run setup first" >&2; exit 2; }
 image="$registry_host/$namespace/openclaw@$digest"
 
 # Cosign runs inside CRC. Its short-lived builder token is valid only for this

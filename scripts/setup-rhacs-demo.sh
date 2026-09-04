@@ -52,7 +52,18 @@ else
 fi
 
 central_host=$(oc -n stackrox get route central -o jsonpath='{.spec.host}')
-export ROX_ENDPOINT=${ROX_ENDPOINT:-${central_host}:443}
+
+# Central can keep the same Route while its signing key changes after a
+# reinstall or data reset.  Merely finding ROX_API_TOKEN in .rhacs.env is not
+# proof that Central still accepts it.  Validate (and, when necessary, replace)
+# the credential before the first RHACS API-backed setup step.
+env -u ROX_ENDPOINT -u ROX_API_TOKEN -u ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY \
+    "$repo_dir/scripts/rhacs-login.sh"
+unset ROX_ENDPOINT ROX_API_TOKEN ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY
+set -a
+# shellcheck disable=SC1090
+. "$rhacs_env"
+set +a
 
 secured_cluster_name=$(oc -n stackrox get securedclusters.platform.stackrox.io -o json | jq -r \
     '.items[]? | select(.spec.clusterName == "production") | .metadata.name' | head -1)
@@ -76,13 +87,7 @@ done
 [ "$fact_ready" = true ] || { echo "RHACS Collector fact container is not ready" >&2; exit 1; }
 echo "File Activity Monitoring: Enabled; Collector fact container ready."
 
-api_auth=()
-if [ -n "${ROX_API_TOKEN:-}" ]; then
-    api_auth=(-H "Authorization: Bearer $ROX_API_TOKEN")
-else
-    admin_password=$(oc -n stackrox get secret central-htpasswd -o jsonpath='{.data.password}' | base64 -d)
-    api_auth=(-u "admin:${admin_password}")
-fi
+api_auth=(-H "Authorization: Bearer $ROX_API_TOKEN")
 
 central_api() {
     local method=$1 api_path=$2 body=${3:-}
@@ -90,29 +95,6 @@ central_api() {
     [ -n "$body" ] && args+=(-d "$body")
     curl "${args[@]}" "https://${central_host}${api_path}"
 }
-
-if [ -z "${ROX_API_TOKEN:-}" ]; then
-    token_response=$(central_api POST /v1/apitokens/generate \
-        '{"name":"ai-email-demo-baselines","role":"Admin"}')
-    export ROX_API_TOKEN=$(jq -r '.token // empty' <<<"$token_response")
-    [ -n "$ROX_API_TOKEN" ] || {
-        echo "Could not generate the RHACS demo API token" >&2
-        jq . <<<"$token_response" >&2
-        exit 1
-    }
-    umask 077
-    {
-        printf 'ROX_ENDPOINT=%q\n' "$ROX_ENDPOINT"
-        printf 'ROX_API_TOKEN=%q\n' "$ROX_API_TOKEN"
-        case "$ROX_ENDPOINT" in
-            *.apps-crc.testing|*.apps-crc.testing:*)
-                printf 'ROX_INSECURE_CLIENT_SKIP_TLS_VERIFY=true\n'
-                ;;
-        esac
-    } > "$rhacs_env"
-    echo "Created $rhacs_env with mode 600. It is excluded from source control."
-    api_auth=(-H "Authorization: Bearer $ROX_API_TOKEN")
-fi
 
 echo "Configuring RHACS access to the OpenShift internal registry..."
 ROX_ENDPOINT="$ROX_ENDPOINT" ROX_API_TOKEN="$ROX_API_TOKEN" \
@@ -180,6 +162,7 @@ targets=(
     ai-email-demo/openclaw
     ai-email-demo/mail-server
     ai-email-demo/mail-api
+    ai-email-demo/document-agent
     ai-email-demo/webmail
     ai-email-demo/unauthorized-demo-service
     ai-email-demo/approved-internal-service
@@ -205,6 +188,9 @@ rhacs-pb-replace ai-email-demo/mail-server greenmail \
     /home/greenmail/run_greenmail.sh /usr/bin/java
 rhacs-pb-replace ai-email-demo/mail-api mail-api \
     /usr/bin/container-entrypoint /usr/bin/uname /opt/app-root/bin/uvicorn
+rhacs-pb-replace ai-email-demo/document-agent document-agent \
+    /usr/bin/container-entrypoint /usr/bin/python3.12 /usr/bin/uname \
+    /opt/app-root/bin/uvicorn
 rhacs-pb-replace ai-email-demo/webmail roundcube \
     /docker-entrypoint.sh /usr/bin/base64 /usr/bin/chown /usr/bin/dirname \
     /usr/bin/grep /usr/bin/head /usr/bin/ls /usr/bin/mkdir /usr/bin/rm \
@@ -214,10 +200,12 @@ rhacs-pb-replace ai-email-demo/webmail roundcube \
     chown mkdir touch
 for sink_target in ai-email-demo/unauthorized-demo-service ai-email-demo/approved-internal-service; do
     rhacs-pb-replace "$sink_target" sink \
-        /usr/bin/container-entrypoint /usr/bin/uname /opt/app-root/bin/uvicorn
+        /usr/bin/container-entrypoint /usr/bin/python3.12 /usr/bin/uname \
+        /opt/app-root/bin/uvicorn
 done
 rhacs-pb-replace demo-webhook/demo-webhook webhook \
-    /usr/bin/container-entrypoint /usr/bin/uname /opt/app-root/bin/uvicorn
+    /usr/bin/container-entrypoint /usr/bin/python3.12 /usr/bin/uname \
+    /opt/app-root/bin/uvicorn
 
 # Preserve RHACS's learned clean-run history, then add only stable processes
 # needed before every rehearsal. curl is deliberately excluded, even if an
@@ -225,21 +213,23 @@ rhacs-pb-replace demo-webhook/demo-webhook webhook \
 # between sensor-learned, explicitly declared, and removed entries visible.
 echo "Agent process history before reconciliation:"
 rhacs-pb-history ai-email-demo/openclaw
-# Broad presentation baseline: tolerate normal runtime discovery, filesystem,
-# formatting, and housekeeping helpers. Deliberately omit shells and dedicated
-# transfer/remote-access tools (curl, wget, nc/ncat/netcat, socat, ssh/scp/sftp,
-# telnet, ftp, openssl). node, python3, and git are application requirements;
-# their destinations are constrained separately by the network baseline.
+# Broad presentation baseline: tolerate the helpers observed during a clean
+# mailbox summary, including the shell used by OpenClaw's normal exec wrapper.
+# Deliberately omit dedicated transfer/remote-access tools (curl, wget,
+# nc/ncat/netcat, socat, ssh/scp/sftp, telnet, ftp, openssl). node, python3,
+# git, and the wrapper helpers are application requirements; their destinations
+# are constrained separately by the network baseline.
 rhacs-pb-replace ai-email-demo/openclaw openclaw \
-    /bin/basename /bin/ps \
+    /bin/basename /bin/ps /bin/sh \
     /usr/bin/basename /usr/bin/cat /usr/bin/chmod /usr/bin/cp /usr/bin/cut \
-    /usr/bin/date /usr/bin/dirname /usr/bin/find /usr/bin/git /usr/bin/grep \
+    /usr/bin/date /usr/bin/dirname /usr/bin/env /usr/bin/find /usr/bin/git /usr/bin/grep \
     /usr/bin/head /usr/bin/hostname /usr/bin/hostnamectl /usr/bin/id \
     /usr/bin/locale /usr/bin/ls /usr/bin/mkdir /usr/bin/node /usr/bin/node-22 \
     /usr/bin/printf /usr/bin/pwd /usr/bin/python3 /usr/bin/readlink \
-    /usr/bin/realpath /usr/bin/rm /usr/bin/sed /usr/bin/sleep /usr/bin/sort \
-    /usr/bin/stat /usr/bin/systemctl /usr/bin/tail /usr/bin/touch /usr/bin/tr \
-    /usr/bin/uname /usr/bin/wc /usr/libexec/grepconf.sh /usr/local/bin/node \
+    /usr/bin/realpath /usr/bin/rm /usr/bin/sed /usr/bin/sh /usr/bin/sleep \
+    /usr/bin/sort /usr/bin/stat /usr/bin/systemctl /usr/bin/tail /usr/bin/tclsh \
+    /usr/bin/touch /usr/bin/tr /usr/bin/uname /usr/bin/wc /usr/bin/xargs \
+    /usr/libexec/grepconf.sh /usr/local/bin/node \
     /usr/sbin/ip \
     grepconf.sh node-22
 rhacs-pb-lock ai-email-demo/openclaw
@@ -291,6 +281,16 @@ rhacs-nb-add ai-email-demo/mail-api --peer openshift-dns/dns-default --port 5353
 rhacs-nb-add ai-email-demo/mail-api --peer openshift-dns/dns-default --port 5353
 rhacs-nb-forbid-external ai-email-demo/mail-api
 rhacs-nb-lock ai-email-demo/mail-api
+
+# Document agent: Route ingress, cluster DNS, and the workstation model API.
+rhacs-nb-add ai-email-demo/document-agent --peer openshift-ingress/router-default --port 8080 --ingress
+rhacs-nb-add ai-email-demo/document-agent --peer internal --port 8080 --ingress
+rhacs-nb-add ai-email-demo/document-agent --peer internal --port 11434
+rhacs-nb-add ai-email-demo/document-agent --peer openshift-dns/dns-default --port 5353 --udp
+rhacs-nb-add ai-email-demo/document-agent --peer openshift-dns/dns-default --port 5353
+rhacs-nb-remove ai-email-demo/document-agent --peer internet --port 11434
+rhacs-nb-forbid-external ai-email-demo/document-agent
+rhacs-nb-lock ai-email-demo/document-agent
 
 # Webmail: Route/platform ingress, IMAP, and cluster DNS.
 rhacs-nb-add ai-email-demo/webmail --peer openshift-ingress/router-default --port 8000 --ingress
@@ -348,6 +348,39 @@ for _ in 1 2 3; do
     resolve_runtime_demo_alerts
 done
 
+echo "Verifying every demo workload has locked process and network baselines..."
+for target in "${targets[@]}"; do
+    process_state=$(rhacs-pb-export "$target")
+    jq -e 'length > 0 and all(.locked == true)' <<<"$process_state" >/dev/null || {
+        echo "Process baseline is not locked for every container in $target" >&2
+        jq . <<<"$process_state" >&2
+        exit 1
+    }
+    network_state=$(rhacs-nb-export "$target")
+    jq -e '.locked == true' <<<"$network_state" >/dev/null || {
+        echo "Network baseline is not locked for $target" >&2
+        jq . <<<"$network_state" >&2
+        exit 1
+    }
+    echo "  $target: process=locked network=locked"
+done
+
+echo "Verifying the clean setup has no active baseline-deviation alerts..."
+active_deviations=0
+for namespace in ai-email-demo demo-webhook; do
+    alerts=$(central_api GET "/v1/alerts?query=Namespace%3A${namespace}")
+    count=$(jq '[.alerts[]? | select(
+        .state == "ACTIVE" and
+        (.policy.name == "Unauthorized Process Execution" or
+         .policy.name == "Unauthorized Network Flow")
+      )] | length' <<<"$alerts")
+    active_deviations=$((active_deviations + count))
+done
+[ "$active_deviations" -eq 0 ] || {
+    echo "Clean RHACS setup still has $active_deviations active process/network baseline deviation alert(s)" >&2
+    exit 1
+}
+
 echo
 echo "RHACS demo setup is complete."
 echo "Central: https://${central_host}"
@@ -357,9 +390,10 @@ echo "Signature: opening v1 is unsigned; scoped RHACS build/deploy policy enable
 echo "Policy: path/operation-only runtime artifact detection enabled for ai-email-demo"
 echo "File activity: enabled in SecuredCluster (RHACS 4.11 Technology Preview)"
 echo "Agent: router ingress, DNS, IMAP, and CRC-host model traffic baselined"
+echo "Document agent: router ingress, DNS, and CRC-host model traffic baselined"
 echo "Agent: curl and demo-webhook:8080 remain excluded"
-echo "Network: all seven workload baselines locked; direct external peers forbidden"
-echo "Alerts: stale process/network deviations resolved for a clean runtime act"
+echo "Network: all eight workload baselines locked; direct external peers forbidden"
+echo "Alerts: zero active process/network baseline deviations verified"
 echo
 echo "Verify at any time:"
 echo "  make rhacs-baseline-status"

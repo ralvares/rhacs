@@ -1,5 +1,6 @@
 # Node.js dependencies and generated output
-node_modules/
+node_modules
+bom.json
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

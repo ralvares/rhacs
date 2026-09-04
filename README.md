@@ -40,13 +40,32 @@ The demonstration has three connected acts:
 2. CI/CD: let the Gitea webhook start OpenShift Pipelines, build in OpenShift, generate a CycloneDX SBOM from the resulting immutable container image, sign the digest, execute RHACS image and YAML gates, and promote only the successful release.
 3. Runtime: send an ordinary HTML email over SMTP, ask the same mailbox question, observe the AI workload start an unexpected process and network flow, then contain the cross-namespace connection with NetworkPolicy.
 
-The developer workspace is pre-created as the `developer` OpenShift user. Its internal UBI/Dev Spaces workstation image includes `oc`, `kubectl`, `roxctl`, `kustomize`, `jq`, `yq`, `git`, `cosign`, `syft`, and `tkn`; no presenter tools are installed on the workstation. Che Code is merged into that tooling container, so the normal **Terminal → New Terminal** action opens the prepared Bash environment directly. The `developer` identity is an administrator only in the `ai-email-demo` application project (and can edit the supporting `demo-platform` project); cluster and operator administration remain separate. Commits are SSH-signed and verified by the pipeline.
+An additional document-agent use case shows the same trust-boundary problem without tools or command execution. A user uploads a normal-looking PDF, PyPDF extracts its complete text layer, a Pydantic state object moves it through a LangGraph workflow, and the configured language model summarizes it. The supplied demonstration PDF contains white text that a viewer does not see but the extractor does: a harmless instruction to answer only `HELLO`. This makes the difference between the visual document and the model's input concrete.
+
+```mermaid
+flowchart LR
+    browser[Browser upload] --> pdf[PDF bytes]
+    pdf --> extract[PyPDF text extraction]
+    extract --> state[Pydantic workflow state]
+    state --> graph[LangGraph]
+    graph --> model[Configured chat model]
+    model --> answer[Rendered summary]
+    hidden[White PDF text] --> extract
+```
+
+After setup, run `make document-agent-url`, open that URL, download the demonstration PDF, upload it, and select **Summarize document**. The visible page describes a community update; the model receives the hidden text layer as well. Expand **Inspect extracted text** only after showing the unexpected `HELLO` response. `make document-agent-test` performs the same route-level check without using the browser.
+
+The complete presenter walk-through is in [`docs/DOCUMENT-AGENT-DEMO.md`](docs/DOCUMENT-AGENT-DEMO.md).
+
+The developer workspace is pre-created as the `developer` OpenShift user. Its internal UBI/Dev Spaces workstation image includes `oc`, `kubectl`, `roxctl`, `kustomize`, `jq`, `yq`, `git`, `podman`, `cosign`, `syft`, and `tkn`; no presenter tools are installed on the workstation. Che Code is merged into that tooling container, so the normal **Terminal → New Terminal** action opens the prepared Bash environment directly. The `developer` identity is an administrator only in the `ai-email-demo` application project (and can edit the supporting `demo-platform` project); cluster and operator administration remain separate. Commits are SSH-signed and verified by the pipeline.
 
 The workstation image also preloads the application’s Python packages in `/opt/demo-venv` and both locked npm dependency trees. Workspace settings and the `TRUSTIFY_DA_*` process environment point RHDA explicitly to that shared Python and pip runtime, while the devfile selects and validates the dependency tree matching the checked-out OpenClaw version. Use `make devspaces-open` on CRC: browser service workers require trusted Route TLS, and this target supplies an isolated exact-key browser profile without modifying the system keychain.
 
+Dockerfile analysis uses `/usr/bin/skopeo` to resolve the base-image digest and `/usr/local/bin/syft` to build its package inventory. At workspace startup, the devfile derives the OCI platform from the running container and normalizes the host architecture (`aarch64` to `arm64`, `x86_64` to `amd64`) before configuring RHDA. Nothing is pinned to one CRC architecture. Podman remains available at `/usr/bin/podman` for CLI demonstrations, but RHDA does not call `podman info`: starting a nested rootless Podman engine would require user-namespace privileges intentionally withheld by the restricted Dev Spaces security context.
+
 The pipeline’s image policy gates are the two scoped custom RHACS policies: the OpenClaw component/version baseline and the approved Cosign signature. Both appear with Critical severity, but they do not implement a blanket “block all Critical CVEs” rule. After OpenShift returns the immutable image digest, Syft scans that exact registry artifact. The resulting CycloneDX SBOM includes the UBI, runtime, OpenClaw, and application-package layers actually shipped; it is retained as build evidence and attached to the same digest as a Cosign attestation. After the image gates pass, the pipeline prepares the TPA publication bundle, then performs the separate RHACS deployment-manifest check, renders a compact `release-evidence` result, and promotes only the immutable digest.
 
-For the presentation, RHACS keeps `ai-email-demo` as the user workload. `demo-platform`, `demo-webhook`, `developer-devspaces`, `external-sender`, `openshift-devspaces`, and `openshift-pipelines` are configured under **Platform Configuration → System Configuration → Platform components configuration → Custom components** as supporting platform namespaces.
+For the presentation, RHACS keeps `ai-email-demo` as the user workload. `demo-platform`, `demo-webhook`, `developer-devspaces`, `external-sender`, `hostpath-provisioner`, `openshift-devspaces`, and `openshift-pipelines` are configured under **Platform Configuration → System Configuration → Platform components configuration → Custom components** as supporting platform namespaces.
 
 There is no attack-specific function in the agent. The workload contains only a small generic IMAP skill and general agent tools. The email supplies the process, URL, and target at runtime.
 
@@ -210,7 +229,7 @@ flowchart LR
 | `mail-api` | `ai-email-demo` | Clears and seeds the fixed demo mailbox |
 | external sender Job | `external-sender` | Sends the multipart HTML message over SMTP |
 | demo webhook | `demo-webhook` | Harmless receiver that records and logs the synthetic environment artifact |
-| workstation Ollama API | CRC host | Runs `deepseek-v4-flash:cloud`; no model is loaded into OpenShift |
+| workstation Ollama API | CRC host | Runs `deepseek-v4-flash:cloud`, `gpt-oss:120b-cloud`, and `llama3.2`; no model is loaded into OpenShift |
 
 The fixed webmail defaults are intentionally memorable: username `demo`, password `demo`, address `demo@demo.test`. Override them in `.env` with `DEMO_MAIL_USER`, `DEMO_MAIL_PASSWORD`, and `DEMO_MAIL_DOMAIN`. Run `make demo-reset` for a complete clean-room rehearsal reset: it recreates the application Deployments and their Secrets, then reconciles RHACS policies and baselines. The credential is delivered to workloads through a Kubernetes Secret; only the gateway token and synthetic runtime context are generated dynamically. The mounted `.env` contains only demonstration values such as `DEMO_API_KEY=synthetic-...` and `DEMO_REGION=lab-only`; no real credential is used.
 
@@ -218,7 +237,7 @@ The fixed webmail defaults are intentionally memorable: username `demo`, passwor
 
 - OpenShift Local/CRC is running.
 - `oc` is logged in to that cluster.
-- Ollama is running on the workstation and can use `deepseek-v4-flash:cloud`.
+- Ollama is running on the workstation and can use `deepseek-v4-flash:cloud`, `gpt-oss:120b-cloud`, and the locally pulled `llama3.2`.
 - CRC host networking is enabled so pods can reach `host.crc.testing:11434`.
 - `curl` and `openssl` are installed on the workstation.
 - The CRC VM has enough free memory for RHACS, OpenShift Pipelines, Dev Spaces, Gitea, and the demo applications. The tested configuration target is 32 GiB assigned to CRC.
@@ -246,7 +265,7 @@ The normal presentation path does not use `make pipeline-run`. A push to `main` 
 
 The isolated presentation configuration pre-authorizes OpenClaw's `exec` tool. Both the tool configuration and its host-local approval file are prepared by the Deployment, so reading the mailbox does not stop at an approval card. This intentionally permissive setting exists only to make the runtime risk visible; it is not a production recommendation.
 
-In Dev Spaces, use the normal **Terminal → New Terminal** action. It opens `/bin/bash --login` in `/projects/demo-app` inside the prepared `tools` container; no container selection is required. Alternatively, use **Terminal → Run Task → devfile → demo-shell**. Both paths provide `oc`, `roxctl`, `jq`, `yq`, `tkn`, `cosign`, `syft`, and `kustomize` on `PATH`.
+In Dev Spaces, use the normal **Terminal → New Terminal** action. It opens `/bin/bash --login` in `/projects/demo-app` inside the prepared `tools` container; no container selection is required. Alternatively, use **Terminal → Run Task → devfile → demo-shell**. Both paths provide `oc`, `roxctl`, `jq`, `yq`, `tkn`, `podman`, `cosign`, `syft`, and `kustomize` on `PATH`.
 
 Check the workstation API:
 
@@ -375,7 +394,9 @@ make credentials
 
 The OpenClaw UI is the chatbot. It provides persistent conversations, rendered Markdown, history, and a production-style personal-agent experience. Release `2026.8.2` uses the maintained upstream UI; the demo does not rewrite minified frontend assets. Keep tool-detail panels collapsed in the audience browser and use RHACS, Pipeline, and receiver views for the security evidence.
 
-Paste the generated value into **Gateway Token**, leave **Password** empty, and click **Connect**. During lab preparation, pair the dedicated presentation browser once. The OpenClaw PVC preserves that device identity while `make demo-reset` removes only conversation sessions, so ordinary resets, image promotion, and pod replacement do not ask for approval again. OpenClaw `2026.8.2` retired the old device-auth bypass; the demo therefore keeps the supported pairing boundary without adding a manual step to the live presentation.
+`make credentials` detects the running OpenClaw version. With v1 (`2026.2.13`) it prints the legacy demo connection instructions because that release does not expose the supported device-management commands. With v2 (`2026.8.2`) it also finds and approves every pending browser device request. Paste the generated value into **Gateway Token**, leave **Password** empty, and click **Connect**. If v2 first reports **Device pairing required**, run `make credentials` once more and click **Connect** again.
+
+`make promote-v2` deliberately stops v1, deletes and recreates `openclaw-state`, and only then starts v2. No v1 session or device state is migrated. The Deployment object is retained so RHACS keeps the workload identity and its prepared baselines, while the PVC receives a new identity and clean content.
 
 ## Exact live walk-through
 

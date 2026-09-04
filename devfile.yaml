@@ -31,7 +31,13 @@ components:
         - {name: TRUSTIFY_DA_PYTHON_PATH, value: /opt/demo-venv/bin/python}
         - {name: TRUSTIFY_DA_PIP3_PATH, value: /opt/demo-venv/bin/pip3}
         - {name: TRUSTIFY_DA_PIP_PATH, value: /opt/demo-venv/bin/pip}
-        - {name: TRUSTIFY_DA_NPM_PATH, value: /usr/bin/npm}
+        - {name: TRUSTIFY_DA_NPM_PATH, value: /usr/local/bin/rhda-npm}
+        # Dockerfile analysis uses Skopeo for digest resolution and Syft for
+        # inventory. The OCI platform is detected dynamically by the startup
+        # command rather than hardcoded for an ARM or x86 CRC host.
+        - {name: TRUSTIFY_DA_SYFT_PATH, value: /usr/local/bin/syft}
+        - {name: TRUSTIFY_DA_SKOPEO_PATH, value: /usr/bin/skopeo}
+        - {name: TRUSTIFY_DA_PODMAN_PATH, value: /usr/bin/podman}
         - {name: GIT_AUTHOR_NAME, value: Developer}
         - {name: GIT_AUTHOR_EMAIL, value: developer@demo.test}
         - {name: GIT_COMMITTER_NAME, value: Developer}
@@ -41,8 +47,10 @@ commands:
     exec:
       component: tools
       commandLine: >-
+        python3 -c 'import json, pathlib, platform; p=pathlib.Path("/checode/remote/data/Machine/settings.json"); p.parent.mkdir(parents=True, exist_ok=True); d=json.loads(p.read_text()) if p.exists() and p.stat().st_size else {}; machine=platform.machine().lower(); arch={"aarch64":"arm64","arm64":"arm64","x86_64":"amd64","amd64":"amd64"}.get(machine, machine); d.update({"security.workspace.trust.enabled":False,"redHatDependencyAnalytics.imagePlatform":"linux/"+arch,"redHatDependencyAnalytics.syft.executable.path":"/usr/local/bin/syft","redHatDependencyAnalytics.skopeo.executable.path":"/usr/bin/skopeo","redHatDependencyAnalytics.podman.executable.path":"/usr/bin/podman"}); p.write_text(json.dumps(d, indent=2) + "\n")' &&
         git config --global user.name 'Developer' &&
         git config --global user.email 'developer@demo.test' &&
+        printf '\nnode_modules\nbom.json\n' >> .git/info/exclude &&
         mkdir -p /home/user/.ssh &&
         cp /etc/gitea-ssh/id_ed25519 /home/user/.ssh/id_ed25519 &&
         chmod 0600 /home/user/.ssh/id_ed25519 &&
@@ -55,17 +63,22 @@ commands:
         git config --global commit.gpgsign true &&
         version=$(node -p 'require("./versions/v1/package.json").dependencies.openclaw') &&
         rm -rf versions/v1/node_modules &&
-        cp -a "/opt/demo-dependencies/openclaw-${version}" versions/v1/node_modules &&
+        ln -s "/opt/demo-dependencies/openclaw-${version}" versions/v1/node_modules &&
+        rm -rf services/openclaw/v1/node_modules &&
+        ln -s "/opt/demo-dependencies/openclaw-${version}" services/openclaw/v1/node_modules &&
         version=$(node -p 'require("./versions/v2/package.json").dependencies.openclaw') &&
         rm -rf versions/v2/node_modules &&
-        cp -a "/opt/demo-dependencies/openclaw-${version}" versions/v2/node_modules &&
+        ln -s "/opt/demo-dependencies/openclaw-${version}" versions/v2/node_modules &&
         python -c 'import fastapi, uvicorn; print("Python application dependencies ready")' &&
+        skopeo inspect --format '{{.Digest}}' docker://registry.access.redhat.com/ubi9/nodejs-22:latest >/dev/null &&
+        syft --version >/dev/null &&
         test -r /etc/profile.d/rhacs-demo.sh &&
         grep -q 'cosign-demo-env.sh' /home/user/.bashrc || printf '\n# Prepare the raw Cosign SBOM demonstration in each terminal.\nsource /projects/demo-app/scripts/cosign-demo-env.sh --quiet\n' >> /home/user/.bashrc &&
         bash -lc 'source /projects/demo-app/scripts/cosign-demo-env.sh --quiet' &&
         test "${TRUSTIFY_DA_PYTHON_VIRTUAL_ENV}" = true &&
         npm --prefix versions/v1 ls --all --package-lock-only --omit=dev --json >/dev/null &&
         npm --prefix versions/v2 ls --all --package-lock-only --omit=dev --json >/dev/null &&
+        npm --prefix services/openclaw/v1 ls --all --package-lock-only --omit=dev --json >/dev/null &&
         printf '\nDeveloper workspace ready. Open requirements.txt or package.json to begin.\n'
       workingDir: ${PROJECT_SOURCE}
   - id: test

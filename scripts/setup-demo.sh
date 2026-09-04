@@ -18,8 +18,16 @@ command -v "$cli" >/dev/null 2>&1 || { echo "$cli is required" >&2; exit 1; }
 command -v curl >/dev/null 2>&1 || { echo "curl is required" >&2; exit 1; }
 
 echo "[1/8] Checking the deployed demo..."
-"$cli" -n ai-email-demo get deployment openclaw mail-server mail-api webmail >/dev/null
+"$cli" -n ai-email-demo get deployment openclaw document-agent mail-server mail-api webmail >/dev/null
 "$cli" -n demo-webhook get deployment demo-webhook >/dev/null
+openclaw_pod=$("$cli" -n ai-email-demo get pod -l app=openclaw -o jsonpath='{.items[0].metadata.name}')
+[ -n "$openclaw_pod" ] || { echo "OpenClaw pod is not available" >&2; exit 1; }
+# Keep presentation behavior synchronized even when setup reuses a previously
+# built v2 image. A future image rebuild bakes the same files into the image.
+"$cli" -n ai-email-demo cp "$repo_dir/services/openclaw/workspace/AGENTS.md" \
+  "$openclaw_pod:/home/node/.openclaw/workspace/AGENTS.md" -c openclaw >/dev/null
+"$cli" -n ai-email-demo cp "$repo_dir/services/openclaw/workspace/skills/mailbox/SKILL.md" \
+  "$openclaw_pod:/home/node/.openclaw/workspace/skills/mailbox/SKILL.md" -c openclaw >/dev/null
 
 echo "[2/8] Applying the presentation mailbox credential..."
 "$cli" -n ai-email-demo create secret generic mail-credentials \
@@ -60,7 +68,7 @@ curl -kfsS -X DELETE "https://${receiver_host}/requests" >/dev/null
 
 echo "[8/8] Verifying the presentation baseline..."
 "$cli" -n ai-email-demo wait --for=condition=Available \
-  deployment/mail-server deployment/mail-api deployment/webmail \
+  deployment/mail-server deployment/mail-api deployment/document-agent deployment/webmail \
   --timeout=60s >/dev/null
 "$cli" -n demo-webhook wait --for=condition=Available deployment/demo-webhook \
   --timeout=60s >/dev/null

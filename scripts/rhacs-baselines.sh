@@ -422,20 +422,38 @@ rhacs-nb-unlock() { _roxb_nb_setlock "${1:?NAMESPACE/DEPLOYMENT}" unlock; }
 # --ingress means the peer connects into it. Removing marks the flow
 # anomalous/forbidden, so it alerts when the baseline is locked.
 _roxb_network_entity_id() {
-    local entity_type="${1:?RHACS network entity type}" graph entity_id
-    graph=$(_roxb_curl GET "/v1/networkgraph/cluster/$CLUSTER_ID") || return 1
-    entity_id=$(jq -r --arg entity_type "$entity_type" '
-        [.. | objects
-         | select(.type? == $entity_type and (.id? | type == "string"))
-         | .id]
-        | unique
-        | if length == 1 then .[0] else empty end
-    ' <<<"$graph")
-    if [ -z "$entity_id" ]; then
-        echo "error: RHACS network graph did not expose exactly one $entity_type entity for cluster $CLUSTER_ID" >&2
-        return 1
-    fi
-    printf '%s\n' "$entity_id"
+    local entity_type="${1:?RHACS network entity type}" graph entity_id entity_count
+    local attempts=${RHACS_GRAPH_ATTEMPTS:-60}
+    local delay=${RHACS_GRAPH_DELAY_SECONDS:-2}
+    for attempt in $(seq 1 "$attempts"); do
+        graph=$(_roxb_curl GET "/v1/networkgraph/cluster/$CLUSTER_ID") || return 1
+        entity_count=$(jq -r --arg entity_type "$entity_type" '
+            [.. | objects
+             | select(.type? == $entity_type and (.id? | type == "string"))
+             | .id]
+            | unique | length
+        ' <<<"$graph")
+        if [ "$entity_count" -eq 1 ]; then
+            entity_id=$(jq -r --arg entity_type "$entity_type" '
+                [.. | objects
+                 | select(.type? == $entity_type and (.id? | type == "string"))
+                 | .id]
+                | unique | .[0]
+            ' <<<"$graph")
+            printf '%s\n' "$entity_id"
+            return 0
+        fi
+        # System Configuration reevaluation temporarily rebuilds the graph.
+        # Retry the empty state, but never guess if RHACS returns ambiguity.
+        if [ "$entity_count" -gt 1 ]; then
+            echo "error: RHACS network graph exposed $entity_count $entity_type entities for cluster $CLUSTER_ID" >&2
+            return 1
+        fi
+        [ "$attempt" -eq 1 ] && echo "waiting for RHACS $entity_type network entity after graph reevaluation..." >&2
+        sleep "$delay"
+    done
+    echo "error: RHACS network graph exposed no $entity_type entity for cluster $CLUSTER_ID after $((attempts * delay)) seconds" >&2
+    return 1
 }
 
 _roxb_nb_modify() {

@@ -6,7 +6,7 @@ This act turns the supply-chain discussion into two visible, pre-staged delivery
 
 The application repository contains `devfile.yaml`. Red Hat OpenShift Dev Spaces reads that file and creates the workspace consistently. `.vscode/extensions.json` requests Red Hat Dependency Analytics and Red Hat YAML from Open VSX. No custom code-server deployment is part of the architecture.
 
-The `demo-workstation` image extends the Red Hat Dev Spaces UDI and is built inside OpenShift. It includes the platform CLIs, the cached affected and maintained OpenClaw dependency trees, and a shared Python environment at `/opt/demo-venv`. The devfile restores the dependency tree matching the checked-out `package.json` and verifies `npm ls --all --package-lock-only --omit=dev --json` before declaring the workspace ready. Workspace settings and the RHDA `TRUSTIFY_DA_*` environment point Python and pip directly to the shared environment and enable virtual-environment analysis.
+The `demo-workstation` image extends the Red Hat Dev Spaces UDI and is built inside OpenShift. It includes the platform CLIs—including Podman—the cached affected and maintained OpenClaw dependency trees, and a shared Python environment at `/opt/demo-venv`. The devfile restores the dependency tree matching the checked-out `package.json` and verifies `npm ls --all --package-lock-only --omit=dev --json` before declaring the workspace ready. Workspace settings and the RHDA `TRUSTIFY_DA_*` environment point Python and pip directly to the shared environment and enable virtual-environment analysis.
 
 Every terminal is a Bash login shell. It loads `/etc/profile.d/rhacs-demo.sh`, which provides the presentation-friendly `rox-check`, `rox-scan`, and `rox-deploy` helpers. The setup creates `rhacs-cli-env` as a Dev Spaces-mounted Secret, so `roxctl` receives `ROX_ENDPOINT`, `ROX_API_TOKEN`, and TLS settings without committing credentials to the repository. The workspace service account receives namespace-scoped delivery access to `demo-platform`, application administration in `ai-email-demo`, and read-only evidence access to `demo-webhook`; it does not receive cluster administration.
 
@@ -127,7 +127,7 @@ The `release-evidence` Task turns the successful dependencies into a compact pre
 
 ### Promote
 
-The pre-staged v2 PipelineRun deliberately skips its promotion Task. During the talk, `make promote-v2` reads the successful run's immutable digest, submits that digest to the existing Deployment, and waits for a healthy rollout. RHACS deployment-create admission is already enabled. This makes admission—not image build latency—the live event.
+The pre-staged v2 PipelineRun deliberately skips its promotion Task. During the talk, `make promote-v2` reads the successful run's immutable digest and submits it to the existing Deployment. The script pauses the rollout, stops v1, replaces the `openclaw-state` PVC, and starts v2 only after the fresh claim exists. This avoids state migration while retaining the Deployment identity and RHACS baselines. RHACS deployment-update admission is already enabled. This makes admission—not image build latency—the live event.
 
 ## Preparation
 
