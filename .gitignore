@@ -32,3 +32,6 @@ pip-wheel-metadata/
 !.env.example
 .work/
 .rhacs.env
+
+# Local credential-detection fixtures
+/deploy/rhacs/policies/detect-secrets/examples/
